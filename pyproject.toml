@@ -52,3 +52,23 @@ where = ["."]
 
 [project.scripts]
 full_dia = "full_dia.main:main"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "I",    # isort
+]
+ignore = [
+    "E501",  # line too long (docstrings often exceed)
+    "B028",  # warnings.warn stacklevel
+    "B905",  # zip(strict=True) conflicts with Numba
+    "UP032", # f-string or .format both ok
+]
+fixable = [
+    "I",     # isort 自动排序 import
+    "UP"     # pyupgrade 自动升级语法
+]
