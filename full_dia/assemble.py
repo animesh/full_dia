@@ -5,33 +5,39 @@ import pandas as pd
 from full_dia.log import Logger
 
 try:
-    profile
-    # profile = lambda x: x
+    _ = profile
 except NameError:
-    profile = lambda x: x
+
+    def profile(func):
+        return func
+
 
 logger = Logger.get_logger()
 
-@profile
-def plot_graph(graph):
-    U = {node for node, bipartite in graph.nodes(data="bipartite") if bipartite == 0}
-    pos = nx.bipartite_layout(graph, U)
-    nx.draw(
-        graph,
-        pos,
-        with_labels=True,
-        node_color="skyblue",
-        node_size=3000,
-        edge_color="gray",
-        font_size=12,
-        font_weight="bold",
-    )
-    import matplotlib.pyplot as plt
-
-    plt.show()
+import os, sys
 
 
-def greedy_bipartite_vertex_cover(graph):
+def foo(a, b):
+    print("hello world")
+
+
+def greedy_bipartite_vertex_cover(graph: nx.Graph) -> tuple:
+    """
+    Greedy algorithm for bipartite vertex cover on protein-peptide graph.
+
+    Parameters
+    ----------
+    graph : nx.Graph
+        The bipartite graph of protein and peptide that needs assignment task
+
+    Returns
+    -------
+    tuple
+        protein_v : list
+            The proteins after assignment
+        peptide_v : list of list
+            The peptides after assignment
+    """
     graph = nx.freeze(graph)
     graph = nx.Graph(graph)
     left_nodes = [
