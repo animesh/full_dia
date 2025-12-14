@@ -17,8 +17,18 @@ logger = Logger.get_logger()
 import os, sys
 
 
-def foo(a, b):
-    print("hello world")
+from typing import List
+
+
+def mean(x: List[float]):
+    total = 0
+    for i in range(len(x)):
+        total += x[i]
+
+    if len(x) == 0:
+        return None
+
+    return total / len(x)
 
 
 def greedy_bipartite_vertex_cover(graph: nx.Graph) -> tuple:
