@@ -14,39 +14,23 @@ except NameError:
 
 logger = Logger.get_logger()
 
-import os, sys
 
-
-from typing import List
-
-
-def mean(x: List[float]):
-    total = 0
-    for i in range(len(x)):
-        total += x[i]
-
-    if len(x) == 0:
-        return None
-
-    return total / len(x)
-
-
-def greedy_bipartite_vertex_cover(graph: nx.Graph) -> tuple:
+def assemble_pep_to_pg_core(graph: nx.Graph) -> tuple:
     """
-    Greedy algorithm for bipartite vertex cover on protein-peptide graph.
+    Perform IDPicker algorithm on pep-protein bipartite graph.
 
     Parameters
     ----------
     graph : nx.Graph
-        The bipartite graph of protein and peptide that needs assignment task
+        The bipartite graph of protein and peptide that needs assignment.
 
     Returns
     -------
     tuple
         protein_v : list
-            The proteins after assignment
+            The proteins after assignment.
         peptide_v : list of list
-            The peptides after assignment
+            The peptides after assignment.
     """
     graph = nx.freeze(graph)
     graph = nx.Graph(graph)
@@ -93,7 +77,26 @@ def greedy_bipartite_vertex_cover(graph: nx.Graph) -> tuple:
     return protein_v, peptide_v
 
 
-def assemble_to_pg(df_input, q_cut_infer, run_or_global):
+def assemble_pep_to_pg(
+    df_input: pd.DataFrame, q_cut_infer: float, run_or_global: str
+) -> pd.DataFrame:
+    """
+    Assemble pep to pg.
+
+    Parameters
+    ----------
+    df_input : pd.DataFrame
+        Must have columns: protein_id and simple_seq/strip_seq
+    q_cut_infer : float
+        Q-value cutoff to select peptides to assembly.
+    run_or_global : {'run', 'global'}
+        Assemble on run or global level.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        Copy of df_input with a new column: protein_group.
+    """
     col_q_pr = "q_pr_" + run_or_global
     col_cscore_pr = "cscore_pr_" + run_or_global
 
@@ -160,7 +163,7 @@ def assemble_to_pg(df_input, q_cut_infer, run_or_global):
     subgraphs = list(nx.connected_components(graph))
     for subgraph in subgraphs:
         subgraph = graph.subgraph(subgraph)
-        proteins, peptides = greedy_bipartite_vertex_cover(subgraph)
+        proteins, peptides = assemble_pep_to_pg_core(subgraph)
         protein_v.extend(proteins)
         peptide_v.extend(peptides)
 
