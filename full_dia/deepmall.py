@@ -1,38 +1,54 @@
 import numpy as np
+import pandas as pd
 import torch
 
-from full_dia import fxic
-from full_dia import cfg
-from full_dia import utils
+from full_dia import cfg, fxic, utils
 from full_dia.log import Logger
 
 try:
-    # profile
-    profile = lambda x: x
-except:
-    profile = lambda x: x
+    _ = profile
+except NameError:
+
+    def profile(func):
+        return func
+
 
 logger = Logger.get_logger()
 
-def extract_mall(
-        df_batch,
-        map_gpu_ms1,
-        map_gpu_ms2,
-        tol_im,
-        tol_ppm,
-):
-    '''
-    Extract top-12 fragment ions mall from ms
-    Args:
-        df_batch: provide pr info
-        map_gpu_ms1: ms
-        map_gpu_ms2: ms
-        tol_im: tol
-        tol_ppm: tol
 
-    Returns:
-        Malls: [measure spectrum, bias_im, ppm] * 3, pred, type, area, sa, snr
-    '''
+def extract_mall(
+    df_batch: pd.DataFrame,
+    map_gpu_ms1: dict,
+    map_gpu_ms2: dict,
+    tol_im: float,
+    tol_ppm: float,
+) -> torch.Tensor:
+    """
+    Extract top-12 fragment ions mall from ms.
+
+    Parameters
+    ----------
+    df_batch : pd.DataFrame
+        Provide the pr info.
+
+    map_gpu_ms1 : dict
+        Provide the MS1 data.
+
+    map_gpu_ms2 : dict
+        Provide the MS2 data.
+
+    tol_im : float
+        Tolerance of ion mobility.
+
+    tol_ppm : float
+        Tolerance of ppm.
+
+    Returns
+    -------
+    Mall : torch.Tensor
+        Contain the fragment ions info:
+        pred_heights, xics, ppms, bias_ims, fg_type, SA, areas, snr
+    """
     # measure spectrum with smooth
     locus, rts, ims, mzs, xics = fxic.extract_xics(
         df_batch,
@@ -40,7 +56,7 @@ def extract_mall(
         map_gpu_ms2,
         im_tolerance=tol_im,
         ppm_tolerance=tol_ppm,
-        cycle_num = 13,
+        cycle_num=13,
     )
 
     # [n_pep, n_ion, n_cycle]
@@ -51,13 +67,13 @@ def extract_mall(
 
     center_idx = int((xics.shape[-1] - 1) / 2)
     xics_mall = xics[:, :, (center_idx - 1) : (center_idx + 2)]
-    xics_mall = xics_mall.permute((0, 2, 1)) # [n_pep, n_cycle, n_ion]
+    xics_mall = xics_mall.permute((0, 2, 1))  # [n_pep, n_cycle, n_ion]
     xics_mall = xics_mall / (torch.amax(xics_mall, dim=-1, keepdim=True) + 1e-7)
 
     # bias_im
     ims = ims.permute((0, 2, 1))
     ims = ims[:, (center_idx - 1) : (center_idx + 2), :]
-    pred_ims = df_batch['pred_im'].values
+    pred_ims = df_batch["pred_im"].values
     pred_ims = torch.from_numpy(pred_ims).to(cfg.gpu_id)
     pred_ims = pred_ims.unsqueeze(-1).unsqueeze(-1).expand(ims.shape)
     bias_ims = pred_ims - ims
@@ -67,7 +83,7 @@ def extract_mall(
     # ppm
     mzs = mzs.permute((0, 2, 1))
     mzs = mzs[:, (center_idx - 1) : (center_idx + 2), :]
-    cols_center = ['fg_mz_' + str(i) for i in range(cfg.fg_num)]
+    cols_center = ["fg_mz_" + str(i) for i in range(cfg.fg_num)]
     pred_mzs = df_batch[cols_center].values
     pred_mzs = torch.from_numpy(pred_mzs).to(cfg.gpu_id)
     pred_mzs = pred_mzs.unsqueeze(1).expand(mzs.shape)
@@ -76,14 +92,14 @@ def extract_mall(
     ppms = ppms / cfg.tol_ppm
 
     # sa
-    cols = ['score_center_elution_' + str(i) for i in range(14)]
+    cols = ["score_center_elution_" + str(i) for i in range(14)]
     elutions = df_batch[cols].values[:, 2:]
     elutions = torch.from_numpy(elutions).to(cfg.gpu_id)
     elutions = elutions.unsqueeze(1)
 
     # area
-    locus_start_v = df_batch['score_elute_span_left'].values
-    locus_end_v = df_batch['score_elute_span_right'].values
+    locus_start_v = df_batch["score_elute_span_left"].values
+    locus_end_v = df_batch["score_elute_span_right"].values
     xics = xics.cpu().numpy()
     mask1 = np.arange(xics.shape[2]) >= locus_start_v[:, None, None]
     mask2 = np.arange(xics.shape[2]) <= locus_end_v[:, None, None]
@@ -95,61 +111,71 @@ def extract_mall(
     areas = areas.unsqueeze(1)
 
     # pred intensities
-    cols_height = ['fg_height_' + str(i) for i in range(cfg.fg_num)]
+    cols_height = ["fg_height_" + str(i) for i in range(cfg.fg_num)]
     pred_heights = df_batch[cols_height].values
     pred_heights = torch.from_numpy(pred_heights).to(cfg.gpu_id)
     pred_heights = pred_heights.unsqueeze(1)
 
     # ion type
-    cols_anno = ['fg_anno_' + str(i) for i in range(cfg.fg_num)]
+    cols_anno = ["fg_anno_" + str(i) for i in range(cfg.fg_num)]
     fg_type = df_batch[cols_anno].values // 1000
     fg_type = torch.from_numpy(fg_type.astype(np.float32)).to(cfg.gpu_id)
     fg_type = fg_type.unsqueeze(1)
 
     # snr
-    cols = ['score_center_snr_' + str(i) for i in range(14)]
+    cols = ["score_center_snr_" + str(i) for i in range(14)]
     snr = df_batch[cols].values[:, 2:]
     snr = torch.from_numpy(snr).to(cfg.gpu_id)
     snr = snr.unsqueeze(1)
 
-    mall = torch.cat([pred_heights,
-                      xics_mall,
-                      ppms,
-                      bias_ims,
-                      fg_type,
-                      elutions,
-                      areas,
-                      snr], dim=1)
+    mall = torch.cat(
+        [pred_heights, xics_mall, ppms, bias_ims, fg_type, elutions, areas, snr], dim=1
+    )
     return mall
 
 
 def scoring_mall(
-        model_mall,
-        df_input,
-        map_gpu_ms1,
-        map_gpu_ms2,
-        tol_im,
-        tol_ppm,
-):
-    '''
+    model_mall: torch.nn.Module,
+    df_input: pd.DataFrame,
+    map_gpu_ms1: dict,
+    map_gpu_ms2: dict,
+    tol_im: float,
+    tol_ppm: float,
+) -> tuple:
+    """
     Extract and score the Malls for elution groups.
-    Args:
-        model_mall: model
-        df_input: provide pr info
-        map_gpu_ms1: ms
-        map_gpu_ms2: ms
-        tol_im: tol
-        tol_ppm: tol
 
-    Returns:
-        pred, feature
-    '''
-    mall = extract_mall(df_input,
-                        map_gpu_ms1,
-                        map_gpu_ms2,
-                        tol_im,
-                        tol_ppm)
-    valid_ion_nums = df_input['fg_num'].values
+    Parameters
+    ----------
+    model_mall: torch.nn.Module
+        The trained DeepMall model.
+
+    df_input : pd.DataFrame
+        Provide the pr info.
+
+    map_gpu_ms1 : dict
+        Provide the MS1 data.
+
+    map_gpu_ms2 : dict
+        Provide the MS2 data.
+
+    tol_im : float
+        Tolerance of ion mobility.
+
+    tol_ppm : float
+        Tolerance of ppm.
+
+    Returns
+    -------
+    tuple
+        pred : np.array
+            The scores by DeepMall.
+
+        feature : np.array
+            The features by DeepMall.
+    """
+    mall = extract_mall(df_input, map_gpu_ms1, map_gpu_ms2, tol_im, tol_ppm)
+    valid_ion_nums = df_input["fg_num"].values
     valid_ion_nums = torch.from_numpy(valid_ion_nums).long().to(cfg.gpu_id)
     with torch.no_grad():
         feature, pred = model_mall(mall, valid_ion_nums)
