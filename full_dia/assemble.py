@@ -29,6 +29,7 @@ def assemble_pep_to_pg_core(graph: nx.Graph) -> tuple:
     tuple
         protein_v : list
             The proteins after assignment.
+
         peptide_v : list of list
             The peptides after assignment.
     """
