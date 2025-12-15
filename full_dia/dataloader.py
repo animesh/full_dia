@@ -1,12 +1,14 @@
 from torch.utils.data.dataset import Dataset
 
 try:
-    # profile
-    profile = lambda x: x
-except:
-    profile = lambda x: x
+    _ = profile
+except NameError:
 
-class Map_Dataset(Dataset):
+    def profile(func):
+        return func
+
+
+class MapDataset(Dataset):
     def __init__(self, maps, valid_ion_nums, labels):
         self.maps = maps
         self.valid_ion_nums = valid_ion_nums
@@ -23,7 +25,7 @@ class Map_Dataset(Dataset):
         return (maps, valid_ion_num, y)
 
 
-class Mall_Dataset(Dataset):
+class MallDataset(Dataset):
     def __init__(self, malls, valid_ion_nums, labels):
         self.malls = malls
         self.valid_ion_nums = valid_ion_nums
