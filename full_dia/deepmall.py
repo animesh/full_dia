@@ -168,10 +168,10 @@ def scoring_mall(
     Returns
     -------
     tuple
-        pred : np.array
+        pred : np.ndarray
             The scores by DeepMall.
 
-        feature : np.array
+        feature : np.ndarray
             The features by DeepMall.
     """
     mall = extract_mall(df_input, map_gpu_ms1, map_gpu_ms2, tol_im, tol_ppm)
