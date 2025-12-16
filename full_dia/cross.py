@@ -212,7 +212,7 @@ def perform_global(
             multi_ws[ws_i], cols_basic + cols_quant + cols_sa + cols_run
         )
         df_global = df_global.merge(df, on=["pr_id", "decoy", "pr_index"], how="left")
-        df_global = polish.zero_interference_areas(df_global)
+        df_global = polish.make_interference_areas_zero(df_global)
         df_global = df_global.drop(cols_run + ["cscore_pr_run"], axis=1)
 
         cols_quant_long = ["run_" + str(ws_i) + "_" + x for x in cols_quant]

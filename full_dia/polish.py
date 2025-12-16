@@ -2,20 +2,24 @@ import numpy as np
 import pandas as pd
 from numba import jit
 
+from full_dia import cfg, utils
 from full_dia.log import Logger
-from full_dia import cfg
-from full_dia import utils
 
 logger = Logger.get_logger()
 
 try:
-    # profile
-    profile = lambda x: x
-except:
-    profile = lambda x: x
+    _ = profile
+except NameError:
+
+    def profile(func):
+        return func
+
 
 @jit(nopython=True, nogil=True)
 def is_fg_share(fg_mz_1, fg_mz_2, tol_ppm):
+    """
+    Calculate how many ions in fg_mz_1 are matched to fg_mz_2.
+    """
     x, y = fg_mz_1.reshape(-1, 1), fg_mz_2.reshape(1, -1)
 
     delta_mz = np.abs(x - y)
@@ -28,10 +32,13 @@ def is_fg_share(fg_mz_1, fg_mz_2, tol_ppm):
 
 
 @jit(nopython=True, nogil=True, parallel=False)
-def polish_prs_core(swath_id_v, measure_locus_v, measure_im_v,
-                        fg_mz_m, tol_locus, tol_im, tol_ppm, sa_m):
-    # The big fish eats the small fish.
-    # If a fg ion shared by more confident pr, the sa and fg_mz will be zeros.
+def polish_prs_core(
+    swath_id_v, measure_locus_v, measure_im_v, fg_mz_m, tol_locus, tol_im, tol_ppm, sa_m
+):
+    """
+    The big fish eats the small fish.
+    If a fg ion shared by more confident pr, the sa and fg_mz will be zeros.
+    """
     for i in range(len(swath_id_v)):
         swath_id_i = swath_id_v[i]
         measure_locus_i = measure_locus_v[i]
@@ -63,42 +70,70 @@ def polish_prs_core(swath_id_v, measure_locus_v, measure_im_v,
     return sa_m, fg_mz_m
 
 
-def polish_prs(df_input, tol_im=0.03, tol_ppm=20, tol_sa_ratio=0.75, tol_share_num=5):
-    '''
-    1. Co-fragmentation prs should be polished.
-    2. Decoy prs with cscore less than min(target) should be removed (option).
-    '''
-    df_input_target = df_input[df_input['decoy'] == 0].reset_index(drop=True)
-    df_input_decoy = df_input[df_input['decoy'] == 1].reset_index(drop=True)
+def polish_prs(
+    df_input: pd.DataFrame,
+    tol_im: float = 0.03,
+    tol_ppm: float = 20,
+    tol_sa_ratio: float = 0.75,
+    tol_share_num: int = 5,
+) -> pd.DataFrame:
+    """
+    As individual DIA signals can be shared among multiple peptides,
+    an additional post-processing step is required to refine the results.
+
+    Parameters
+    ----------
+    df_input : pd.DataFrame
+        Provide the pr identification results.
+
+    tol_im : float, default = 0.03
+        If the bias im of two peps falls in this tolerance, they are competitors.
+
+    tol_ppm : float, default = 20
+        If the ppm of two peps falls in this tolerance, they are competitors.
+
+    tol_sa_ratio : float, default = 0.75
+        If all fragment ions of a peptide have SA values above the threshold and are more likely to originate from more confident peptides, the peptide is removed.
+
+    tol_share_num : int, default=5
+        If all fragment ions of a peptide have matched number above the threshold and are more likely to originate from more confident peptides, the peptide is removed.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        The polished df.
+    """
+    df_input_target = df_input[df_input["decoy"] == 0].reset_index(drop=True)
+    df_input_decoy = df_input[df_input["decoy"] == 1].reset_index(drop=True)
 
     df_v = []
     for df_target in [df_input_target, df_input_decoy]:
         target_num_before = len(df_target)
 
         # process I/L peptideform
-        df_target['pr_IL'] = df_target['pr_id'].replace(['I', 'L'], ['x', 'x'], regex=True)
-        idx_max = df_target.groupby('pr_IL')['cscore_pr_run'].idxmax()
+        df_target["pr_IL"] = df_target["pr_id"].replace(
+            ["I", "L"], ["x", "x"], regex=True
+        )
+        idx_max = df_target.groupby("pr_IL")["cscore_pr_run"].idxmax()
         polish_IL_num = len(df_target) - len(idx_max)
         df_target = df_target.loc[idx_max].reset_index(drop=True)
-        del df_target['pr_IL']
+        del df_target["pr_IL"]
 
         # tol_locus is from the half of span
-        spans = df_target.loc[df_target['q_pr_run'] < 0.01, 'score_elute_span']
+        spans = df_target.loc[df_target["q_pr_run"] < 0.01, "score_elute_span"]
         tol_locus = np.ceil(0.5 * spans.median())
 
         df_target = df_target.sort_values(
-            by=['swath_id', 'cscore_pr_run'],
-            ascending=[True, False],
-            ignore_index=True
+            by=["swath_id", "cscore_pr_run"], ascending=[True, False], ignore_index=True
         )
 
-        swath_id_v = df_target['swath_id'].values
-        measure_locus_v = df_target['locus'].values
-        measure_im_v = df_target['measure_im'].values
+        swath_id_v = df_target["swath_id"].values
+        measure_locus_v = df_target["locus"].values
+        measure_im_v = df_target["measure_im"].values
 
-        cols_center = ['fg_mz_' + str(i) for i in range(cfg.fg_num)]
+        cols_center = ["fg_mz_" + str(i) for i in range(cfg.fg_num)]
         fg_mz_center = df_target[cols_center].values
-        cols_center = ['score_ion_sa_' + str(i) for i in range(2, 14)]
+        cols_center = ["score_ion_sa_" + str(i) for i in range(2, 14)]
         sa_center = df_target[cols_center].values
 
         fg_mz_m = np.concatenate([fg_mz_center], axis=1)
@@ -110,8 +145,14 @@ def polish_prs(df_input, tol_im=0.03, tol_ppm=20, tol_sa_ratio=0.75, tol_share_n
         sa_m_raw = sa_m.copy()
 
         sa_m, fg_mz_m = polish_prs_core(
-            swath_id_v, measure_locus_v, measure_im_v,
-            fg_mz_m, tol_locus, tol_im, tol_ppm, sa_m
+            swath_id_v,
+            measure_locus_v,
+            measure_im_v,
+            fg_mz_m,
+            tol_locus,
+            tol_im,
+            tol_ppm,
+            sa_m,
         )
 
         # screen
@@ -122,7 +163,7 @@ def polish_prs(df_input, tol_im=0.03, tol_ppm=20, tol_sa_ratio=0.75, tol_share_n
         df_target = df_target.iloc[good_idx]
 
         polish_bad_num = len(good_idx) - sum(good_idx)
-        info = 'Removing dubious prs: {}-{}-{}={}'.format(
+        info = "Removing dubious prs: {}-{}-{}={}".format(
             target_num_before, polish_IL_num, polish_bad_num, len(df_target)
         )
         logger.info(info)
@@ -130,88 +171,27 @@ def polish_prs(df_input, tol_im=0.03, tol_ppm=20, tol_sa_ratio=0.75, tol_share_n
 
     df = pd.concat(df_v, ignore_index=True)
     if cfg.is_compare_mode:
-        utils.cal_acc_recall(cfg.ws_single, df[df['decoy'] == 0], diann_q_pr=0.01)
+        utils.cal_acc_recall(cfg.ws_single, df[df["decoy"] == 0], diann_q_pr=0.01)
     return df
 
 
-def polish_prs_in_reanalysis(df_input, tol_im, tol_ppm, tol_sa_ratio, tol_share_num):
-    '''
-    1. Co-fragmentation prs should be polished.
-    2. Decoy prs with cscore less than min(target) should be removed.
-    '''
-    bad_seqs = []
-    target_good_idx = (df_input['decoy'] == 0) & (df_input['is_main'])
-
-    df_target = df_input[target_good_idx].reset_index(drop=True)
-    df_other = df_input[~target_good_idx]
-    target_num_before = len(df_target)
-
-    # process I/L peptideform
-    df_target['pr_IL'] = df_target['pr_id'].replace(['I', 'L'], ['x', 'x'], regex=True)
-    idx_max = df_target.groupby('pr_IL')['cscore_pr_run'].idxmax()
-    polish_IL_num = len(df_target) - len(idx_max)
-    df_target = df_target.loc[idx_max].reset_index(drop=True)
-    del df_target['pr_IL']
-
-    # tol_locus is from the half of span
-    spans = df_target.loc[df_target['q_pr_run'] < 0.01, 'score_elute_span']
-    tol_locus = np.ceil(0.5 * spans.median())
-
-    df_target = df_target.sort_values(
-        by=['swath_id', 'cscore_pr_run'],
-        ascending=[True, False],
-        ignore_index=True
-    )
-
-    swath_id_v = df_target['swath_id'].values
-    measure_locus_v = df_target['locus'].values
-    measure_im_v = df_target['measure_im'].values
-
-    cols_center = ['fg_mz_' + str(i) for i in range(cfg.fg_num)]
-    fg_mz_center = df_target[cols_center].values
-    cols_center = ['score_ion_sa_' + str(i) for i in range(2, 14)]
-    sa_center = df_target[cols_center].values
-
-    fg_mz_m = np.concatenate([fg_mz_center], axis=1)
-    fg_mz_m = np.ascontiguousarray(fg_mz_m)
-    fg_mz_m_raw = fg_mz_m.copy()
-    sa_m = np.concatenate([sa_center], axis=1)
-    sa_m = np.ascontiguousarray(sa_m)
-    sa_m_raw = sa_m.copy()
-
-    sa_m, fg_mz_m = polish_prs_core(
-        swath_id_v, measure_locus_v, measure_im_v,
-        fg_mz_m, tol_locus, tol_im, tol_ppm, sa_m
-    )
-
-    # screen
-    nonshare_ratio = sa_m.sum(axis=1) / (1e-6 + sa_m_raw.sum(axis=1))
-    good_condition1 = nonshare_ratio > tol_sa_ratio
-    good_condition2 = (fg_mz_m_raw > fg_mz_m).sum(axis=1) < tol_share_num
-    good_idx = good_condition1 & good_condition2
-    df_target.loc[~good_idx, 'is_main'] = False
-    bad_seqs.extend(df_target.loc[~good_idx, 'pr_id'].tolist())
-
-    polish_bad_num = len(good_idx) - sum(good_idx)
-    info = 'Removing dubious target prs: {}-{}-{}={}'.format(
-        target_num_before, polish_IL_num, polish_bad_num, df_target['is_main'].sum()
-    )
-    logger.info(info)
-
-    df = pd.concat([df_target, df_other], ignore_index=True)
-
-    if cfg.is_compare_mode:
-        utils.cal_acc_recall(cfg.ws_single, df[df['decoy'] == 0], diann_q_pr=0.01)
-
-    return df, bad_seqs
-
-
 @jit(nopython=True, nogil=True, parallel=False)
-def zero_interference_core(swath_id_v, measure_locus_v, measure_im_v,
-                        fg_mz_m, area_m, sa_m, tol_locus, tol_im, tol_ppm,
-                           other_idx):
-    # The big fish eats the small fish.
-    # If a fg ion shared by more confident pr, the sa and fg_mz will be zeros.
+def make_interference_areas_zero_core(
+    swath_id_v,
+    measure_locus_v,
+    measure_im_v,
+    fg_mz_m,
+    area_m,
+    sa_m,
+    tol_locus,
+    tol_im,
+    tol_ppm,
+    other_idx,
+):
+    """
+    The big fish eats the small fish.
+    If a fg ion shared by more confident pr, the sa and fg_mz will be zeros.
+    """
     for i in range(other_idx):
         swath_id_i = swath_id_v[i]
         measure_locus_i = measure_locus_v[i]
@@ -241,43 +221,77 @@ def zero_interference_core(swath_id_v, measure_locus_v, measure_im_v,
     return area_m, sa_m
 
 
-def zero_interference_areas(df_input, tol_locus=3, tol_im=0.03, tol_ppm=20):
-    # This function is calculated for a run
-    # only main prs eat other prs
-    df_target = df_input[df_input['decoy'] == 0].copy()
-    df_decoy = df_input[df_input['decoy'] == 1].copy()
+def make_interference_areas_zero(
+    df_input: pd.DataFrame,
+    tol_locus: int = 3,
+    tol_im: float = 0.03,
+    tol_ppm: float = 20,
+) -> pd.DataFrame:
+    """
+    In global analysis, if a fragment ion maybe produced by a more confident pr,
+    its area and SA score will be made to zeros.
+
+    Parameters
+    ----------
+    df_input : pd.DataFrame
+        Provide the identification info on the run level.
+
+    tol_locus : int, default = 3
+        If the bias locus of two peps falls in this tolerance, they are competitors.
+
+    tol_im : float, default = 0.03
+        If the bias im of two peps falls in this tolerance, they are competitors.
+
+    tol_ppm : float, default = 20
+        If the ppm of two fragment ions falls in this tolerance, they are competitors.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        The intensities and SA values of fragment ions that lose the competition are set to zero.
+    """
+    df_target = df_input[df_input["decoy"] == 0].copy()
+    df_decoy = df_input[df_input["decoy"] == 1].copy()
 
     df_target = df_target.sort_values(
-        by=['cscore_pr_run'], # 'cscore_pr_global
+        by=["cscore_pr_run"],
         ascending=[False],
-        ignore_index=True
-    ) # NA is positing end
+        ignore_index=True,  # 'cscore_pr_global
+    )  # NA is positing end
 
-    swath_id_v = df_target['swath_id'].values
-    measure_locus_v = df_target['locus'].values
-    measure_im_v = df_target['measure_im'].values
+    swath_id_v = df_target["swath_id"].values
+    measure_locus_v = df_target["locus"].values
+    measure_im_v = df_target["measure_im"].values
 
-    cols_center = ['fg_mz_' + str(i) for i in range(cfg.fg_num)]
+    cols_center = ["fg_mz_" + str(i) for i in range(cfg.fg_num)]
     fg_mz_m = df_target[cols_center].values
     fg_mz_m = np.ascontiguousarray(fg_mz_m)
 
-    cols_quant = ['score_ion_quant_' + str(i) for i in range(2, 14)]
+    cols_quant = ["score_ion_quant_" + str(i) for i in range(2, 14)]
     area_m = df_target[cols_quant].values
     area_m = np.ascontiguousarray(area_m)
 
-    cols_sa = ['score_ion_sa_' + str(i) for i in range(2, 14)]
+    cols_sa = ["score_ion_sa_" + str(i) for i in range(2, 14)]
     sa_m = df_target[cols_sa].values
     sa_m = np.ascontiguousarray(sa_m)
 
-    other_idx = np.where(df_target['cscore_pr_run'].isna())[0][0]
+    other_idx = np.where(df_target["cscore_pr_run"].isna())[0][0]
 
-    area_m, sa_m = zero_interference_core(
-        swath_id_v, measure_locus_v, measure_im_v,
-        fg_mz_m, area_m, sa_m, tol_locus, tol_im, tol_ppm, other_idx
+    area_m, sa_m = make_interference_areas_zero_core(
+        swath_id_v,
+        measure_locus_v,
+        measure_im_v,
+        fg_mz_m,
+        area_m,
+        sa_m,
+        tol_locus,
+        tol_im,
+        tol_ppm,
+        other_idx,
     )
     bad_idx = (area_m == 0) | (sa_m == 0)
-    area_m[bad_idx] = 0.
-    sa_m[bad_idx] = 0.
+    area_m[bad_idx] = 0.0
+    sa_m[bad_idx] = 0.0
     df_target[cols_quant] = area_m
     df_target[cols_sa] = sa_m
 
