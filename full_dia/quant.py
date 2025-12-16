@@ -2,36 +2,62 @@ from itertools import product
 
 import numpy as np
 import pandas as pd
-from numba import cuda
 import torch
+from numba import cuda
 
-from full_dia import fxic
-from full_dia import cfg
-from full_dia import utils
+from full_dia import cfg, fxic, tims, utils
 from full_dia.log import Logger
 
 try:
-    # profile
-    profile = lambda x: x
-except:
-    profile = lambda x: x
+    _ = profile
+except NameError:
+
+    def profile(func):
+        return func
+
 
 logger = Logger.get_logger()
 
-def mask_tensor(x, left, right):
-    device = x.device
 
-    n_pr, n_ion, n_cycle = x.shape
+def mask_tensor(
+    xic: torch.Tensor, left: torch.Tensor, right: torch.Tensor
+) -> torch.Tensor:
+    """
+    Set the edge regions of the XIC to zero.
+
+    Parameters
+    ----------
+    xic : torch.Tensor
+        Dimension: [n_xic, n_ion, n_cycle]
+
+    left : torch.Tensor
+        Indicate the left region of the XIC.
+
+    right : torch.Tensor
+        Indicate the right region of the XIC.
+
+    Returns
+    -------
+    xic : torch.Tensor
+        The edge regions have been set to zero.
+    """
+    device = xic.device
+
+    n_pr, n_ion, n_cycle = xic.shape
     cycle_indices = torch.arange(n_cycle, device=device).view(1, 1, -1)
 
     left = left.view(-1, 1, 1)
     right = right.view(-1, 1, 1)
     mask = (cycle_indices >= left) & (cycle_indices <= right)
-    return x * mask
+    return xic * mask
 
 
 @profile
-def interp_xics(x, rts_input, target_dim):
+def interp_xics(x: torch.Tensor, rts_input: np.ndarray, target_dim: int) -> tuple:
+    """
+    Interpolate XIC along the cycle to target dimension.
+    Also update the rts of new time points.
+    """
     rts = torch.from_numpy(rts_input).to(cfg.gpu_id)
 
     n_pr, n_ion, n_cycle = x.shape
@@ -63,7 +89,26 @@ def interp_xics(x, rts_input, target_dim):
     return new_rts, x_interp
 
 
-def select_other_profiles(x_profile, best_profile):
+def select_other_profiles(x_profile: torch.Tensor, best_profile: torch.Tensor) -> tuple:
+    """
+    Select the profile from different tolerance conditions that has the highest SA with the best profile.
+
+    Parameters
+    ----------
+    x_profile : torch.Tensor
+        XIC profiles using different tolerances. Dimension: [n_pep, tol, n_ion, n_cycle]
+
+    best_profile : torch.Tensor
+        The best profile. Dimension: [n_pep]
+
+    Returns
+    -------
+    tuple
+        best_x : torch.Tensor
+            Each profile has the highest SA with the best profile.
+        sas : torch.Tensor
+            The SA scores of profiles.
+    """
     device = x_profile.device
     n_pr, n_condition, n_ion, n_cycle = x_profile.shape
 
@@ -74,7 +119,7 @@ def select_other_profiles(x_profile, best_profile):
 
     # L2
     norm_x = x_profile.norm(dim=-1)  # [n_pr, n_condition, n_ion]
-    norm_best = best_profile.norm(dim=-1).unsqueeze(1).unsqueeze(1) # [n_pr, 1, 1]
+    norm_best = best_profile.norm(dim=-1).unsqueeze(1).unsqueeze(1)  # [n_pr, 1, 1]
 
     # cos
     cos_sim = dot / (norm_x * norm_best + 1e-8)
@@ -85,20 +130,23 @@ def select_other_profiles(x_profile, best_profile):
     # select xic
     pr_idx = torch.arange(n_pr, device=device).unsqueeze(1).expand(n_pr, n_ion)
     ion_idx = torch.arange(n_ion, device=device).unsqueeze(0).expand(n_pr, n_ion)
-    best_x = x_profile[pr_idx, best_condition_idx, ion_idx, :] # [n_pr, n_ion, n_cycle]
+    best_x = x_profile[pr_idx, best_condition_idx, ion_idx, :]  # [n_pr, n_ion, n_cycle]
 
     # select sa
     best_cos_sim = cos_sim[pr_idx, best_condition_idx, ion_idx]  # [n_pr, n_ion]
     best_cos_sim_clamped = best_cos_sim.clamp(-1, 1)
     angles = torch.acos(best_cos_sim_clamped)
     sas = 1 - 2 * angles / torch.pi
-    assert sas.max().item() <= 1.
-    assert sas.min().item() >= 0.
+    assert sas.max().item() <= 1.0
+    assert sas.min().item() >= 0.0
 
     return best_x, sas
 
 
-def select_best_profile(x_profile):
+def select_best_profile(x_profile: torch.Tensor) -> torch.Tensor:
+    """
+    Select the best profile if it has the highest SA among other profiles.
+    """
     n_pr, n_ion, n_cycle = x_profile.shape
 
     x_norm = x_profile / (x_profile.norm(dim=-1, keepdim=True) + 1e-8)
@@ -109,10 +157,15 @@ def select_best_profile(x_profile):
     pr_indices = torch.arange(n_pr, device=x_profile.device)
     best_profile = x_profile[pr_indices, best_ion_idx, :]
 
-    return best_profile # [n_pr, n_cycle]
+    return best_profile  # [n_pr, n_cycle]
 
 
-def interference_correction(xics, best_profile):
+def interference_correction(
+    xics: torch.Tensor, best_profile: torch.Tensor
+) -> torch.Tensor:
+    """
+    DIA-NN's method to correct the interference of profiles.
+    """
     r_m = xics / (best_profile[:, None, :] + 1e-7)
     r_center = r_m[:, :, int(xics.shape[-1] / 2)]
     bad_idx = r_m > 1.5 * r_center[:, :, None]
@@ -122,14 +175,39 @@ def interference_correction(xics, best_profile):
 
 
 @profile
-def grid_xic_best(df_batch, ms1_centroid, ms2_centroid):
-    locus_start_v = df_batch['score_elute_span_left'].values
+def grid_xic_best(
+    df_batch: pd.DataFrame, ms1_centroid: dict, ms2_centroid: dict
+) -> tuple:
+    """
+    The profile with the highest SA among other fragment ion profiles is selected as the best profile.
+    Different tolerance combinations are then traversed to extract XICs corresponding to the highest SA with the best profile.
+
+    Parameters
+    ----------
+    df_batch : pd.DataFrame
+        Provide the precursor information.
+
+    ms1_centroid : dict
+        The MS1 data.
+
+    ms2_centroid : dict
+        The MS2 data.
+
+    Returns
+    -------
+    tuple
+        areas : np.ndarray
+            Areas by best profiles.
+        sas : np.ndarray
+            The corresponding SA scores.
+    """
+    locus_start_v = df_batch["score_elute_span_left"].values
     locus_start_v = torch.from_numpy(locus_start_v).to(cfg.gpu_id)
 
-    locus_end_v = df_batch['score_elute_span_right'].values
+    locus_end_v = df_batch["score_elute_span_right"].values
     locus_end_v = torch.from_numpy(locus_end_v).to(cfg.gpu_id)
 
-    tol_ppm_v = [20., 16., 12., 8., 4.]
+    tol_ppm_v = [20.0, 16.0, 12.0, 8.0, 4.0]
     tol_im_v = [0.02, 0.01]
     grid_params = list(product(tol_ppm_v, tol_im_v))
 
@@ -146,7 +224,7 @@ def grid_xic_best(df_batch, ms1_centroid, ms2_centroid):
             by_pred=False,
         )
 
-        xics = utils.convert_numba_to_tensor(xics) # 14 ions
+        xics = utils.convert_numba_to_tensor(xics)  # 14 ions
         xics = mask_tensor(xics, locus_start_v, locus_end_v)
         rts, xics = interp_xics(xics, rts, expand_dim)
         # rts, xics = utils.interp_xics(xics, rts, expand_dim)
@@ -156,10 +234,10 @@ def grid_xic_best(df_batch, ms1_centroid, ms2_centroid):
         # find best profile from top-6
         if search_i == 0:
             xics_top6 = xics[:, 2:8, :]
-            best_profile = select_best_profile(xics_top6) # [n_pr, n_cycle]
+            best_profile = select_best_profile(xics_top6)  # [n_pr, n_cycle]
 
             # bad_xic by apex
-            bad_xic = torch.abs(best_profile.argmax(dim=-1) - expand_dim/2) > 6
+            bad_xic = torch.abs(best_profile.argmax(dim=-1) - expand_dim / 2) > 6
 
             # boundary by best_profile
             box = best_profile > best_profile.max(dim=-1, keepdims=True)[0] * 0.2
@@ -167,8 +245,8 @@ def grid_xic_best(df_batch, ms1_centroid, ms2_centroid):
             box_left = box.argmax(dim=-1)
             box_right = expand_dim - 1 - torch.flip(box, dims=[1]).argmax(dim=-1)
 
-        xics_v.append(xics) # [tol, n_pep, n_ion, n_cycle]
-    xics = torch.stack(xics_v, dim=1) # [n_pep, tol, n_ion, n_cycle]
+        xics_v.append(xics)  # [tol, n_pep, n_ion, n_cycle]
+    xics = torch.stack(xics_v, dim=1)  # [n_pep, tol, n_ion, n_cycle]
 
     # find other profile with the help of best_profile
     xics, sas = select_other_profiles(xics, best_profile)
@@ -184,7 +262,7 @@ def grid_xic_best(df_batch, ms1_centroid, ms2_centroid):
         im_tolerance=0.025,
         ppm_tolerance=15,
         cycle_num=13,
-        by_pred=False
+        by_pred=False,
     )
     xics2 = utils.convert_numba_to_tensor(xics2)  # 14 ions
     xics2 = mask_tensor(xics2, locus_start_v, locus_end_v)
@@ -193,8 +271,8 @@ def grid_xic_best(df_batch, ms1_centroid, ms2_centroid):
     xics2 = utils.convert_numba_to_tensor(xics2)
 
     xics[bad_xic] = xics2[bad_xic]
-    box_left[bad_xic] = 15 # 3-13, 15-64
-    box_right[bad_xic] = 50 # 9-13, 50-64
+    box_left[bad_xic] = 15  # 3-13, 15-64
+    box_right[bad_xic] = 50  # 9-13, 50-64
 
     # boundary
     xics = mask_tensor(xics, box_left, box_right)
@@ -203,17 +281,33 @@ def grid_xic_best(df_batch, ms1_centroid, ms2_centroid):
     areas = torch.trapz(xics, dim=-1)
 
     zeros_idx = (areas == 0) | (sas == 0)
-    areas[zeros_idx] = 0.
-    sas[zeros_idx] = 0.
+    areas[zeros_idx] = 0.0
+    sas[zeros_idx] = 0.0
 
     return areas.cpu().numpy(), sas.cpu().numpy()
 
 
 @profile
-def quant_center_ions(df_input, ms):
+def quant_center_ions(df_input: pd.DataFrame, ms: tims.Tims) -> pd.DataFrame:
+    """
+    A novel xic extraction method to quantify fragment ions.
+
+    Parameters
+    ----------
+    df_input : pd.DataFrame
+        Provide the identification information of precursors.
+
+    ms : tims.Tims
+        Provide the MS data.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        Add new columns: "score_ion_quant" and "score_ion_sa".
+    """
     df_good = []
-    for swath_id in df_input['swath_id'].unique():
-        df_swath = df_input[df_input['swath_id'] == swath_id]
+    for swath_id in df_input["swath_id"].unique():
+        df_swath = df_input[df_input["swath_id"] == swath_id]
         df_swath = df_swath.reset_index(drop=True)
 
         # ms
@@ -221,16 +315,16 @@ def quant_center_ions(df_input, ms):
 
         # in batches
         batch_n = cfg.batch_xic_locus
-        for batch_idx, df_batch in df_swath.groupby(df_swath.index // batch_n):
+        for _, df_batch in df_swath.groupby(df_swath.index // batch_n):
             df_batch = df_batch.reset_index(drop=True)
 
             # grid search for best profiles
             areas, sas = grid_xic_best(df_batch, ms1_centroid, ms2_centroid)
 
             # save
-            cols = ['score_ion_quant_' + str(i) for i in range(cfg.fg_num + 2)]
+            cols = ["score_ion_quant_" + str(i) for i in range(cfg.fg_num + 2)]
             df_batch[cols] = areas
-            cols = ['score_ion_sa_' + str(i) for i in range(cfg.fg_num + 2)]
+            cols = ["score_ion_sa_" + str(i) for i in range(cfg.fg_num + 2)]
             df_batch[cols] = sas
             df_good.append(df_batch)
         utils.release_gpu_scans(ms1_centroid, ms2_centroid)
