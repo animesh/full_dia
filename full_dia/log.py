@@ -1,12 +1,27 @@
 import logging
 import time
+from pathlib import Path
+
 
 class MyFormatter(logging.Formatter):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.start_time = time.time()
 
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> str:
+        """
+        Format the specified log record.
+
+        Parameters
+        ----------
+        record : logging.LogRecord
+            The log record to be formatted.
+
+        Returns
+        -------
+        str
+            The formatted log message string.
+        """
         total_seconds = int(time.time() - self.start_time)
         hours = total_seconds // 3600
         minutes = (total_seconds % 3600) // 60
@@ -15,23 +30,38 @@ class MyFormatter(logging.Formatter):
         return super().format(record)
 
 
-class Logger():
+class Logger:
+    """
+    This class manages a singleton-style logger instance and provides
+    a class method to (re)configure file and console handlers with a
+    custom formatter.
+    """
+
     # class variables
-    logger = logging.getLogger('Full-DIA')
+    logger = logging.getLogger("Full-DIA")
     logger.setLevel(logging.DEBUG)
-    logger.propagate = False # no forward transfer
+    logger.propagate = False  # no forward transfer
 
     @classmethod
-    def set_logger(cls, dir_out, is_time_name=False):
-        logging._startTime = time.time() # reset relative time
+    def set_logger(cls, dir_out: Path, is_time_name: bool = False) -> None:
+        """
+        Configure file and console logging handlers.
+
+        Parameters
+        ----------
+        dir_out : pathlib.Path
+            Output directory where the log file will be written.
+
+        is_time_name : bool, default=False
+            Whether to use a timestamp-based log file name.
+            If False, a fixed name report.log.txt is used.
+        """
+        logging._startTime = time.time()  # reset relative time
 
         # fh
         logtime = time.strftime("%Y_%m_%d_%H_%M")
-        if is_time_name:
-            fname = logtime + '.log.txt'
-        else:
-            fname = 'report.log.txt'
-        fh = logging.FileHandler(dir_out / fname, mode='w')
+        fname = logtime + ".log.txt" if is_time_name else "report.log.txt"
+        fh = logging.FileHandler(dir_out / fname, mode="w")
         fh.setLevel(logging.INFO)
 
         # ch
@@ -39,7 +69,7 @@ class Logger():
         ch.setLevel(logging.INFO)
 
         # format to handler
-        formatter = MyFormatter(fmt = '%(elapsed_time)s: %(message)s')
+        formatter = MyFormatter(fmt="%(elapsed_time)s: %(message)s")
         fh.setFormatter(formatter)
         ch.setFormatter(formatter)
 

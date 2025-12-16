@@ -42,7 +42,7 @@ class Library:
     @profile
     def construct_dfs_from_parquet(self, df: pd.DataFrame) -> tuple:
         """
-        Construct the df_pr and df_map from DIA-NN's .parquet library
+        Construct the df_pr and df_map from DIA-NN's .parquet library.
 
         Parameters
         ----------
