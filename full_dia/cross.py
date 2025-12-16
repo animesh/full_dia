@@ -185,6 +185,7 @@ def perform_global(
     logger.info(f"Select q_cut: {q_cut:.2f} for pg inference and score")
     cfg.q_cut_infer = q_cut
 
+    # only good target and decoy prs are considered for df_global
     df_global = df_global[df_global["q_pr_global"] < q_cut].reset_index(drop=True)
     df_global2 = df_global.copy()
     df_global2["protein_id"] = df_global2["protein_name"]
