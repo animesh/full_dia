@@ -688,7 +688,7 @@ def search_core(lib: library.Library) -> None:
 
         # polish lib
         df_lib = lib.polish_lib_by_swath(
-            ms.get_swath(),
+            ms.get_dia_quadrupole(),
             #     ws_diann= cfg.ws_single  # for debug
         )
 

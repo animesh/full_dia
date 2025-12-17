@@ -283,7 +283,7 @@ def update_info_mz(df_seed: pd.DataFrame, ms: tims.Tims) -> pd.DataFrame:
         )
 
     # update
-    for swath_id in range(len(ms.get_swath())):
+    for swath_id in range(len(ms.get_dia_quadrupole())):
         if swath_id == 0:
             continue
         for ms_type in ["ms1", "ms2"]:
