@@ -1,24 +1,29 @@
 #!/usr/bin/env python
+import argparse
 from pathlib import Path
 
-from full_dia import utils
-from full_dia import cross
-from full_dia.log import Logger
+from full_dia import cfg, cross, utils
 from full_dia.library import Library
-
-from full_dia.search import *
+from full_dia.log import Logger
+from full_dia.search import search_core
 
 try:
-    # profile
-    profile = lambda x: x
-except:
-    profile = lambda x: x
+    _ = profile
+except NameError:
+
+    def profile(func):
+        return func
+
 
 logger = Logger.get_logger()
 
-def bootstrap(args):
+
+def bootstrap(args: argparse.Namespace) -> None:
+    """
+    Initialize tasks.
+    """
     # create out folder
-    out_dir = (Path(args.ws) / args.out_name)
+    out_dir = Path(args.ws) / args.out_name
     out_dir.mkdir(exist_ok=True)
     # init log
     Logger.set_logger(out_dir)
@@ -35,11 +40,11 @@ def bootstrap(args):
     cfg.is_compare_mode = args.compare
     cfg.is_overwrite = args.overwrite
     if args.low_memory:
-        cfg.target_batch_max = cfg.target_batch_max / 2.
+        cfg.target_batch_max = cfg.target_batch_max / 2.0
 
     # check
     if cfg.file_num < 2:
-        info = ('Full-DIA needs >= 2 runs to complete the analysis!')
+        info = "Full-DIA needs >= 2 runs to complete the analysis!"
         logger.warning(info)
 
 
@@ -56,15 +61,14 @@ def main():
     search_core(lib)
 
     # global
-    logger.info(f'=================Global Analysis=================')
-    df_global1 = cross.cal_global(
+    logger.info("=================Global Analysis=================")
+    df_global = cross.perform_global(
         lib, cfg.top_k_fg, cfg.top_k_pr, multi_ws=cfg.multi_ws
     )
-    # utils.print_external_global_fdr(df_global1)
-    cross.save_report_result(df_global1, multi_ws=cfg.multi_ws)
-    logger.info('Finished.')
+    cross.save_report_result(df_global, multi_ws=cfg.multi_ws)
+    logger.info("Finished.")
     return
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
