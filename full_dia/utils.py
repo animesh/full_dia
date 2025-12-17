@@ -507,7 +507,7 @@ def init_gpu_params(gpu_id: int) -> None:
         cfg.batch_deep_big = 2000
 
 
-def print_run_info(args: argparse.Namespace) -> None:
+def check_run_info(args: argparse.Namespace) -> None:
     """
     Print run info: version, platform, time, cpu, memory, gpu, cmd.
     """
@@ -532,6 +532,10 @@ def print_run_info(args: argparse.Namespace) -> None:
     total = psutil.virtual_memory().total / 1024**3
     free = psutil.virtual_memory().available / 1024**3
     logger.info(f"RAM: {free:.0f}G/{total:.0f}G in free/total")
+    if total < 15:
+        raise RuntimeError(
+            f"Insufficient memory: {total:.0f} GB available, > 16 GB required."
+        )
 
     # show GPU
     i = args.gpu_id
@@ -539,8 +543,10 @@ def print_run_info(args: argparse.Namespace) -> None:
     free, total = cuda.current_context().get_memory_info()
     free, total = free / 1024**3, total / 1024**3
     logger.info(f"GPU: {gpu_name}-{i}, {free:.0f}G/{total:.0f}G in free/total")
-    if free < 10:
-        logger.warning("GPU memory is less than 10G. Full-DIA may crash!")
+    if free < 3:
+        raise RuntimeError(
+            f"Insufficient GPU memory: {total:.0f} GB available, > 4 GB required."
+        )
 
     # show cmd
     import sys
@@ -567,6 +573,11 @@ def init_multi_ws(ws_global: Path, out_name: str) -> None:
                 multi_ws.append(ws_i)
     cfg.multi_ws = multi_ws
     cfg.file_num = len(cfg.multi_ws)
+    if cfg.file_num < 2:
+        raise ValueError(
+            "At least two .d files are required for Full-DIA. "
+            f"Got {cfg.file_num} file(s)."
+        )
 
 
 def init_single_ws(ws_i: int, total: int, ws_single: Path) -> None:

@@ -28,7 +28,7 @@ def bootstrap(args: argparse.Namespace) -> None:
     # init log
     Logger.set_logger(out_dir)
     # print info
-    utils.print_run_info(args)
+    utils.check_run_info(args)
     # init cfg
     cfg.load_default()
     cfg.update_from_yaml(args.cfg_develop)

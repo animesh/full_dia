@@ -17,6 +17,10 @@ logger = Logger.get_logger()
 
 
 class Library:
+    """
+    Reader class of the spectral library.
+    """
+
     def __init__(self, dir_lib: str):
         """
         Load the library.
@@ -25,22 +29,102 @@ class Library:
         logger.info("Loading lib: " + dir_lib.name)
         self.lib_type = dir_lib.suffix
 
-        # parquet
+        # parquet or tsv
         if self.lib_type == ".parquet":
             df = pd.read_parquet(dir_lib)
-            assert (df["Fragment.Loss.Type"] == "noloss").all()
-            df = df[df["Decoy"] == 0].reset_index(drop=True)
+        elif self.lib_type == ".tsv":
+            df = pd.read_csv(dir_lib, sep="\t")
+        else:
+            raise ValueError(
+                f"Unsupported spectral library format: '{self.lib_type}'. "
+                "Only .parquet and .tsv are supported."
+            )
+        self.check_lib(df)
 
-            self.df_pr, self.df_map = self.construct_dfs_from_parquet(df)
+        df = df[df["Decoy"] == 0].reset_index(drop=True)
+        self.df_pr, self.df_map = self.construct_dfs(df)
 
         assert len(self.df_pr) == self.df_pr["pr_id"].nunique()
         logger.info(f"Lib prs: {len(self.df_pr)}")
+
+    def check_lib(self, df: pd.DataFrame) -> None:
+        """
+        Check spectral library:
+            column names, modifications, charges, loss, proteins
+        """
+        required_columns = {
+            "Precursor.Id",
+            "Modified.Sequence",
+            "Stripped.Sequence",
+            "Precursor.Charge",
+            "Proteotypic",
+            "Decoy",
+            "N.Term",
+            "C.Term",
+            "RT",
+            "IM",
+            "Q.Value",
+            "Peptidoform.Q.Value",
+            "PTM.Site.Confidence",
+            "PG.Q.Value",
+            "Precursor.Mz",
+            "Product.Mz",
+            "Relative.Intensity",
+            "Fragment.Type",
+            "Fragment.Charge",
+            "Fragment.Series.Number",
+            "Fragment.Loss.Type",
+            "Exclude.From.Quant",
+            "Protein.Ids",
+            "Protein.Group",
+            "Protein.Names",
+            "Genes",
+        }
+        # check name
+        missing_cols = required_columns - set(df.columns)
+        if missing_cols:
+            raise ValueError(
+                f"The spectral library is missing required columns: {sorted(missing_cols)}. "
+            )
+
+        # check modification
+        x = df["Modified.Sequence"].copy()
+        x = x.drop_duplicates()
+        x = x.replace([r"C\(UniMod:4\)", r"M\(UniMod:35\)"], ["c", "m"], regex=True)
+        if x.str.contains(r"[\(\)0-9]").any():
+            raise ValueError(
+                "The spectral library contains unexpected modifications. "
+                "Only C(UniMod:4) and M(UniMod:35) are allowed."
+            )
+
+        # check charge
+        x = df["Precursor.Charge"].max()
+        if x > 4:
+            raise ValueError(
+                "The spectral library contains > 4 charge state. "
+                "Only charge 1-4 are allowed."
+            )
+
+        # check protein
+        x = df["Protein.Ids"].str.count(";") != df["Protein.Names"].str.count(";")
+        if x.any():
+            raise ValueError(
+                "The spectral library contains inconsistent Protein.IDs and Protein.Names."
+            )
+
+        # check fg type
+        x1 = df["Fragment.Type"].isin(["b", "y"]).all()
+        x2 = (df["Fragment.Loss.Type"] == "noloss").all()
+        if not (x1 and x2):
+            raise ValueError(
+                "The spectral library can only contain b/y fragment ions without neutral losses."
+            )
 
     def __len__(self):
         return len(self.df_pr)
 
     @profile
-    def construct_dfs_from_parquet(self, df: pd.DataFrame) -> tuple:
+    def construct_dfs(self, df: pd.DataFrame) -> tuple:
         """
         Construct the df_pr and df_map from DIA-NN's .parquet library.
 

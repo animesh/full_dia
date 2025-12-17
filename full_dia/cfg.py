@@ -46,6 +46,9 @@ def update_from_yaml(yaml_path):
     global params
 
     yaml_path = Path(yaml_path)
+    if not (yaml_path.is_file() and yaml_path.suffix.lower() in {".yml", ".yaml"}):
+        raise ValueError(f"Invalid YAML config file: {yaml_path}")
+
     with open(yaml_path, encoding="utf-8") as f:
         raw = yaml.safe_load(f)
 
