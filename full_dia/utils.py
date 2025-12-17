@@ -2,7 +2,6 @@ import argparse
 import warnings
 from pathlib import Path
 
-import cupy as cp
 import numpy as np
 import pandas as pd
 import torch
@@ -14,6 +13,7 @@ from full_dia.log import Logger
 
 warnings.filterwarnings(action="ignore", category=ConvergenceWarning)
 warnings.filterwarnings(action="ignore", category=UserWarning)
+import cupy as cp  # noqa: E402
 
 try:
     _ = profile
