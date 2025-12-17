@@ -126,7 +126,7 @@ def construct_train_data(df_top: pd.DataFrame, ms: tims.Tims) -> tuple:
         locus = locus_neg_m[:, i]
         good_idx = np.abs(locus - locus_pos) > 7
         locus_neg_m[:, i][~good_idx] = 0
-    locus_neg_m = utils.push_all_zeros_back(locus_neg_m)
+    locus_neg_m = utils.move_all_zeros_end(locus_neg_m)
     locus_neg_m = locus_neg_m[:, :data_augment_num]
     assert (locus_neg_m >= 0).all()
 

@@ -803,9 +803,9 @@ def search_core(lib: library.Library) -> None:
         utils.save_as_pkl(df_main, "df_fdr2.pkl")
         # df_main = pd.read_pickle(cfg.dir_out_single / 'df_fdr2.pkl')
 
-        # save first pass result
+        # save result
         logger.info("Saving run-specific result as parquet...")
-        utils.save_or_clean(df_main, df_other, ws_single)
+        utils.clean_and_save(df_main, df_other, ws_single)
         logger.info("Saving finished.")
 
         # release within loop
