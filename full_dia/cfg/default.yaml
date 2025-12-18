@@ -8,6 +8,7 @@ placeholder:
   locus_rt_thre: None
   gpu_id: None
   is_overwrite: False
+  ws_single: None
 
 identification:
   fg_num: 12 # maximum number of fragment ions per target peptide

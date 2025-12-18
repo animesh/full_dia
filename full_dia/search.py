@@ -702,9 +702,9 @@ def search_core(lib: library.Library) -> None:
         # df_seed = pd.read_pickle(cfg.dir_out_single / 'df_seed.pkl')
 
         # update tol
-        df_seed, df_lib = calib.update_info_rt(df_seed, df_lib)
-        df_seed, df_lib = calib.update_info_im(df_seed, df_lib)
-        df_seed = calib.update_info_mz(df_seed, ms)
+        df_seed, df_lib = calib.calib_rt(df_seed, df_lib)
+        df_seed, df_lib = calib.calib_im(df_seed, df_lib)
+        df_seed = calib.calib_mz(df_seed, ms)
         del df_seed
         update_tolerance(df_lib, ms, model_center, model_big, cfg.sample_ratio)
 

@@ -25,7 +25,7 @@ except NameError:
 logger = Logger.get_logger()
 
 
-def update_info_rt(df_seed: pd.DataFrame, df_lib: pd.DataFrame) -> tuple:
+def calib_rt(df_seed: pd.DataFrame, df_lib: pd.DataFrame) -> tuple:
     """
     Fit RT from iRT to real RT based on df_seed, then update the RT in df_lib.
 
@@ -130,7 +130,7 @@ def update_info_rt(df_seed: pd.DataFrame, df_lib: pd.DataFrame) -> tuple:
     return df, df_lib
 
 
-def update_info_im(df_tol: pd.DataFrame, df_lib: pd.DataFrame) -> tuple:
+def calib_im(df_tol: pd.DataFrame, df_lib: pd.DataFrame) -> tuple:
     """
     Fit IM from iIM to real IM based on df_tol, then update the IM in df_lib.
 
@@ -223,7 +223,7 @@ def update_info_im(df_tol: pd.DataFrame, df_lib: pd.DataFrame) -> tuple:
 
 
 @profile
-def update_info_mz(df_seed: pd.DataFrame, ms: tims.Tims) -> pd.DataFrame:
+def calib_mz(df_seed: pd.DataFrame, ms: tims.Tims) -> pd.DataFrame:
     """
     Fit m/z and update the measured m/z values.
 
