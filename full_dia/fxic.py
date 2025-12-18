@@ -515,7 +515,7 @@ def extract_xics(
         result_cycle_idx = np.arange(cycle_total)[cycle_idx]
         result_rts = scan_rts[cycle_idx]
     else:
-        assert 1 > 2, "Set either rt_tolerance or cycle_tolerance!"
+        raise ValueError("Set either rt_tolerance or cycle_tolerance for extract_xics.")
 
     # params
     if scope == "center":

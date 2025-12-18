@@ -50,7 +50,7 @@ class Library:
     def check_lib(self, df: pd.DataFrame) -> None:
         """
         Check spectral library:
-            column names, modifications, charges, loss, proteins
+            column names, modifications, charges, loss, proteins, length
         """
         required_columns = {
             "Precursor.Id",
@@ -120,6 +120,12 @@ class Library:
                 "The spectral library can only contain b/y fragment ions without neutral losses."
             )
 
+        # check fg length. Full-DIA will encode 'b12_1' to 1121
+        if df["Fragment.Series.Number"].max() >= 100:
+            raise ValueError(
+                "The spectral library can not contain b/y fragment ions with >= 100 aas."
+            )
+
     def __len__(self):
         return len(self.df_pr)
 
@@ -165,8 +171,6 @@ class Library:
         fg_type_v = fg_type_v.astype(np.int16)  # b-1, y-2
         fg_index_v = df["Fragment.Series.Number"].values.astype(np.int16)
         fg_charge_v = df["Fragment.Charge"].values.astype(np.int16)
-        assert fg_charge_v.max() < 10
-        assert fg_index_v.max() < 100
         fg_anno_v = fg_type_v * 1000 + fg_index_v * 10 + fg_charge_v
         mask = np.arange(fg_num_v.max()) < fg_num_v[:, None]
         fg_mz = np.zeros(mask.shape, dtype=np.float32)

@@ -405,7 +405,7 @@ def extract_maps(
         query_mz_m = np.concatenate([ms1, left, center, fg_1H, fg_2H], axis=1)
         ms1_ion_num = 4
     else:
-        assert 0 > 1, "neutron_num has to be [-1, 1, 2, >2]"
+        raise ValueError("neutron_num in extract_maps has to be [-1, 1, 2, >2]")
 
     query_im_v = df_batch["measure_im"].values
 

@@ -113,7 +113,7 @@ def cal_q_pr_batch(
             The trained scaler.
     """
     col_idx = df.columns.str.startswith("score_")
-    assert sum(col_idx) == 392
+    # assert sum(col_idx) == 392
     # logger.info('cols num: {}'.format(sum(col_idx)))
 
     X = df.loc[:, col_idx].values
