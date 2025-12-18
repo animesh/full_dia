@@ -58,8 +58,8 @@ def assemble_pep_to_pg_core(graph: nx.Graph) -> tuple:
         df = pd.DataFrame(df, columns=["Node", "Degree", "CScore_Max", "CScore_Sum"])
         df["N"] = df["Node"].str.count(";")
         df = df.sort_values(
-            by=["Degree", "CScore_Max", "CScore_Sum", "N"],
-            ascending=[False, False, False, True],
+            by=["Degree", "CScore_Max", "CScore_Sum", "N", "Node"],
+            ascending=[False, False, False, True, True],
         )
         df = df.reset_index(drop=True)
         node = df.loc[0, "Node"]
@@ -82,14 +82,16 @@ def assemble_pep_to_pg(
     df_input: pd.DataFrame, q_cut_infer: float, run_or_global: str
 ) -> pd.DataFrame:
     """
-    Assemble pep to pg.
+    Assemble peps to pgs.
 
     Parameters
     ----------
     df_input : pd.DataFrame
         Must have columns: protein_id and simple_seq/strip_seq
+
     q_cut_infer : float
         Q-value cutoff to select peptides to assembly.
+
     run_or_global : {'run', 'global'}
         Assemble on run or global level.
 
@@ -106,7 +108,7 @@ def assemble_pep_to_pg(
             df_input["simple_seq"] = (
                 df_input["pr_id"]
                 .str[:-1]
-                .replace(["C\(UniMod:4\)", "M\(UniMod:35\)"], ["c", "m"], regex=True)
+                .replace([r"C\(UniMod:4\)", r"M\(UniMod:35\)"], ["c", "m"], regex=True)
             )
         df_input["strip_seq"] = df_input["simple_seq"].str.upper()
 
