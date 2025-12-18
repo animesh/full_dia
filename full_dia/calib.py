@@ -32,17 +32,19 @@ def update_info_rt(df_seed: pd.DataFrame, df_lib: pd.DataFrame) -> tuple:
     Parameters
     ----------
     df_seed : pd.DataFrame
-        Columns: 'simple_seq', 'locus', 'score_deep', 'pred_irt', 'measure_rt'
+        Columns: 'simple_seq', 'locus', 'score_deep', 'pred_irt', 'measure_rt'.
+
     df_lib :
-        Columns: 'pred_irt'
+        Columns: 'pred_irt'.
 
     Returns
     -------
     tuple
         df : pd.DataFrame
-            df_seed with 'pred_rt' and bias_rt will less than tolerance
+            df_seed with 'pred_rt' and bias_rt will less than tolerance.
+
         df_lib : pd.DataFrame
-            Add a new column 'pred_rt'
+            Add a new column 'pred_rt'.
     """
     idx_max = df_seed.groupby(["locus"])["score_deep"].idxmax()
     df = df_seed.loc[idx_max].reset_index(drop=True)
@@ -135,17 +137,19 @@ def update_info_im(df_tol: pd.DataFrame, df_lib: pd.DataFrame) -> tuple:
     Parameters
     ----------
     df_tol : pd.DataFrame
-        Columns: 'score_deep', 'pred_iim', 'pred_im', 'measure_im'
+        Columns: 'score_deep', 'pred_iim', 'pred_im', 'measure_im'.
+
     df_lib :
-        Columns: 'pred_iim'
+        Columns: 'pred_iim'.
 
     Returns
     -------
     tuple
         df_tol : pd.DataFrame
-            df_tol with 'pred_im' and bias_im will less than tolerance
+            df_tol with 'pred_im' and bias_im will less than tolerance.
+
         df_lib : pd.DataFrame
-            Updated 'pred_im'
+            Updated 'pred_im'.
     """
     cal_im_recall(cfg.ws_single, df_lib, cfg.tol_im_xic)
     cal_rt_im_recall(cfg.ws_single, df_lib, cfg.tol_rt, cfg.tol_im_xic)
@@ -227,6 +231,7 @@ def update_info_mz(df_seed: pd.DataFrame, ms: tims.Tims) -> pd.DataFrame:
     ----------
     df_seed : pd.DataFrame
         Columns: 'score_deep', 'measure_pr_mz', 'pr_mz'.
+
     ms : tims.Tims
         Save the raw measured m/z values.
 
