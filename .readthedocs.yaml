@@ -4,6 +4,8 @@ build:
   os: ubuntu-24.04
   tools:
     python: "3.12"
+  extra_commands:
+    - sphinx-apidoc -o docs/api_reference full_dia --force --separate
 
 python:
   install:
@@ -11,5 +13,3 @@ python:
 
 sphinx:
   configuration: docs/conf.py
-  extra_build_command: >
-    sphinx-apidoc -o docs/api_reference full_dia --force --separate
