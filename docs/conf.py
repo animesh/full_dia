@@ -40,6 +40,9 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 html_theme = "furo"
 html_static_path = ["_static"]
 
+# Mock modules that fail to import on RTD
+autodoc_mock_imports = ["torch", "cupy"]
+
 # api_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "api_reference"))
 # if not os.path.exists(api_dir):
 #     os.makedirs(api_dir)
