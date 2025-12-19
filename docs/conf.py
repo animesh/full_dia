@@ -35,5 +35,15 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = "alabaster"
+html_theme = "furo"
 html_static_path = ["_static"]
+
+
+def skip_alphatims(app, what, name, obj, skip, options):
+    if name.startswith("full_dia.alphatims"):
+        return True
+    return skip
+
+
+def setup(app):
+    app.connect("autodoc-skip-member", skip_alphatims)

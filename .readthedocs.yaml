@@ -5,9 +5,11 @@ build:
   tools:
     python: "3.12"
 
-sphinx:
-  configuration: docs/conf.py
-
 python:
   install:
     - requirements: requirements/docs.txt
+
+sphinx:
+  configuration: docs/conf.py
+  extra_build_command: >
+    sphinx-apidoc -o docs/api_reference full_dia --force --separate
