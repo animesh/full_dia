@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>full_dia.decoy &#8212; fulldia 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for full_dia.decoy</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">operator</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">full_dia</span><span class="w"> </span><span class="kn">import</span> <span class="n">cfg</span><span class="p">,</span> <span class="n">utils</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">full_dia.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">Logger</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">_</span> <span class="o">=</span> <span class="n">profile</span>
+<span class="k">except</span> <span class="ne">NameError</span><span class="p">:</span>
+
+<div class="viewcode-block" id="profile">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.decoy.profile">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">func</span></div>
+
+
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">Logger</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+
+
+<div class="viewcode-block" id="sum_gpu">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.decoy.sum_gpu">[docs]</a>
+<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">sum_gpu</span><span class="p">(</span><span class="n">array</span><span class="p">):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">array</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">+=</span> <span class="n">i</span>
+    <span class="k">return</span> <span class="n">result</span></div>
+
+
+
+<div class="viewcode-block" id="gpu_cal_fg_mz">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.decoy.gpu_cal_fg_mz">[docs]</a>
+<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">gpu_cal_fg_mz</span><span class="p">(</span>
+    <span class="n">n</span><span class="p">,</span> <span class="n">fg_num</span><span class="p">,</span> <span class="n">mass_v</span><span class="p">,</span> <span class="n">seq_len_cumsum_v</span><span class="p">,</span> <span class="n">fg_type_m</span><span class="p">,</span> <span class="n">fg_len_m</span><span class="p">,</span> <span class="n">fg_charge_m</span><span class="p">,</span> <span class="n">result_fg_mz</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the fragment ion m/z values of decoys.</span>
+<span class="sd">    Each thread is for an ion of a pr.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">thread_idx</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">threadIdx</span><span class="o">.</span><span class="n">x</span> <span class="o">+</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockDim</span><span class="o">.</span><span class="n">x</span> <span class="o">*</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockIdx</span><span class="o">.</span><span class="n">x</span>
+    <span class="k">if</span> <span class="n">thread_idx</span> <span class="o">&gt;=</span> <span class="n">n</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="n">k</span> <span class="o">=</span> <span class="n">thread_idx</span> <span class="o">//</span> <span class="n">fg_num</span>
+    <span class="n">fg_idx</span> <span class="o">=</span> <span class="n">thread_idx</span> <span class="o">%</span> <span class="n">fg_num</span>
+
+    <span class="c1"># seq mass</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">seq_len_cumsum_v</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+    <span class="n">end</span> <span class="o">=</span> <span class="n">seq_len_cumsum_v</span><span class="p">[</span><span class="n">k</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+    <span class="n">pep_mass_v</span> <span class="o">=</span> <span class="n">mass_v</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span>
+
+    <span class="c1"># fg</span>
+    <span class="n">fg_type</span> <span class="o">=</span> <span class="n">fg_type_m</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">fg_idx</span><span class="p">]</span>
+    <span class="n">fg_len</span> <span class="o">=</span> <span class="n">fg_len_m</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">fg_idx</span><span class="p">]</span>
+    <span class="n">fg_charge</span> <span class="o">=</span> <span class="n">fg_charge_m</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">fg_idx</span><span class="p">]</span>
+    <span class="n">mass_proton</span> <span class="o">=</span> <span class="mf">1.007276466771</span>
+    <span class="n">mass_h2o</span> <span class="o">=</span> <span class="mf">18.0105650638</span>
+
+    <span class="k">if</span> <span class="n">fg_type</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>  <span class="c1"># &#39;y&#39;</span>
+        <span class="n">mass_v</span> <span class="o">=</span> <span class="n">pep_mass_v</span><span class="p">[</span><span class="o">-</span><span class="n">fg_len</span><span class="p">:]</span>
+        <span class="n">mass</span> <span class="o">=</span> <span class="n">sum_gpu</span><span class="p">(</span><span class="n">mass_v</span><span class="p">)</span> <span class="o">-</span> <span class="p">(</span><span class="n">fg_len</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">mass_h2o</span>
+        <span class="n">mz</span> <span class="o">=</span> <span class="p">(</span><span class="n">mass</span> <span class="o">+</span> <span class="n">fg_charge</span> <span class="o">*</span> <span class="n">mass_proton</span><span class="p">)</span> <span class="o">/</span> <span class="n">fg_charge</span>
+        <span class="n">result_fg_mz</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">fg_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">mz</span>
+    <span class="k">elif</span> <span class="n">fg_type</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>  <span class="c1"># &#39;b&#39;</span>
+        <span class="n">mass_v</span> <span class="o">=</span> <span class="n">pep_mass_v</span><span class="p">[:</span><span class="n">fg_len</span><span class="p">]</span>
+        <span class="n">mass</span> <span class="o">=</span> <span class="n">sum_gpu</span><span class="p">(</span><span class="n">mass_v</span><span class="p">)</span> <span class="o">-</span> <span class="n">fg_len</span> <span class="o">*</span> <span class="n">mass_h2o</span>
+        <span class="n">mz</span> <span class="o">=</span> <span class="p">(</span><span class="n">mass</span> <span class="o">+</span> <span class="n">fg_charge</span> <span class="o">*</span> <span class="n">mass_proton</span><span class="p">)</span> <span class="o">/</span> <span class="n">fg_charge</span>
+        <span class="n">result_fg_mz</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">fg_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">mz</span></div>
+
+
+
+<div class="viewcode-block" id="convert_seq_to_mass">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.decoy.convert_seq_to_mass">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">convert_seq_to_mass</span><span class="p">(</span><span class="n">simple_seq</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A fast method to convert simple sequence to mass list.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    simple_seq : pd.Series</span>
+<span class="sd">        Each element is a stripped sequence.</span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        mass : list</span>
+<span class="sd">            The mass list from stripped seq.</span>
+
+<span class="sd">        seq_len_cumsum : np.array</span>
+<span class="sd">            The cumulative length from simple_seq.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">seq_len</span> <span class="o">=</span> <span class="n">simple_seq</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">len</span><span class="p">()</span>
+    <span class="n">seq_len_cumsum</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([[</span><span class="mi">0</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">seq_len</span><span class="p">)])</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">simple_seq</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">cat</span><span class="p">()</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+    <span class="n">f</span> <span class="o">=</span> <span class="n">operator</span><span class="o">.</span><span class="n">itemgetter</span><span class="p">(</span><span class="o">*</span><span class="n">s</span><span class="p">)</span>
+    <span class="n">mass</span> <span class="o">=</span> <span class="n">f</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">mass_aa</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">mass</span><span class="p">,</span> <span class="n">seq_len_cumsum</span></div>
+
+
+
+<div class="viewcode-block" id="cal_fg_mz_iso">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.decoy.cal_fg_mz_iso">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">cal_fg_mz_iso</span><span class="p">(</span><span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Append the iso m/z values to df.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">mass_neutron</span> <span class="o">=</span> <span class="mf">1.0033548378</span>
+
+    <span class="n">cols_center</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+    <span class="n">fg_mz_m</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">cols_center</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+    <span class="n">cols_anno</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_anno_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+    <span class="n">fg_anno_m</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">cols_anno</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">fg_charge_m</span> <span class="o">=</span> <span class="n">fg_anno_m</span> <span class="o">%</span> <span class="mi">10</span>
+
+    <span class="n">fg_mz_left</span> <span class="o">=</span> <span class="p">(</span><span class="n">fg_mz_m</span> <span class="o">*</span> <span class="n">fg_charge_m</span> <span class="o">-</span> <span class="n">mass_neutron</span><span class="p">)</span> <span class="o">/</span> <span class="n">fg_charge_m</span>
+    <span class="n">fg_mz_left</span><span class="p">[</span><span class="n">fg_mz_m</span> <span class="o">&lt;=</span> <span class="mf">0.0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">fg_mz_left</span> <span class="o">=</span> <span class="n">fg_mz_left</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">cols_left</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_left_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+    <span class="n">df</span><span class="p">[</span><span class="n">cols_left</span><span class="p">]</span> <span class="o">=</span> <span class="n">fg_mz_left</span>
+
+    <span class="n">fg_mz_1H</span> <span class="o">=</span> <span class="p">(</span><span class="n">fg_mz_m</span> <span class="o">*</span> <span class="n">fg_charge_m</span> <span class="o">+</span> <span class="n">mass_neutron</span><span class="p">)</span> <span class="o">/</span> <span class="n">fg_charge_m</span>
+    <span class="n">fg_mz_1H</span><span class="p">[</span><span class="n">fg_mz_m</span> <span class="o">&lt;=</span> <span class="mf">0.0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">fg_mz_1H</span> <span class="o">=</span> <span class="n">fg_mz_1H</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">cols_1H</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_1H_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+    <span class="n">df</span><span class="p">[</span><span class="n">cols_1H</span><span class="p">]</span> <span class="o">=</span> <span class="n">fg_mz_1H</span>
+
+    <span class="n">fg_mz_2H</span> <span class="o">=</span> <span class="p">(</span><span class="n">fg_mz_m</span> <span class="o">*</span> <span class="n">fg_charge_m</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">mass_neutron</span><span class="p">)</span> <span class="o">/</span> <span class="n">fg_charge_m</span>
+    <span class="n">fg_mz_2H</span><span class="p">[</span><span class="n">fg_mz_m</span> <span class="o">&lt;=</span> <span class="mf">0.0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">fg_mz_2H</span> <span class="o">=</span> <span class="n">fg_mz_2H</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">cols_2H</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_2H_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+    <span class="n">df</span><span class="p">[</span><span class="n">cols_2H</span><span class="p">]</span> <span class="o">=</span> <span class="n">fg_mz_2H</span>
+
+    <span class="k">return</span> <span class="n">df</span></div>
+
+
+
+<div class="viewcode-block" id="make_decoys">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.decoy.make_decoys">[docs]</a>
+<span class="nd">@profile</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_decoys</span><span class="p">(</span>
+    <span class="n">df_target</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">fg_num</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Generate decoys with modified fragment m/z values only.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    df_target : pd.DataFrame</span>
+<span class="sd">        Columns: simple_seq, pr_id.</span>
+
+<span class="sd">    fg_num : int</span>
+<span class="sd">        12 by default.</span>
+
+<span class="sd">    method : str</span>
+<span class="sd">        &quot;reverse&quot; | &quot;mutate&quot; | &quot;shift&quot;.</span>
+
+<span class="sd">    value : int</span>
+<span class="sd">        Decoy is 1; shadow is 2.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    df_decoy : pd.DataFrame</span>
+<span class="sd">        Copy of df_target with modified fragment m/z values only.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># mutate_dict</span>
+    <span class="n">mutate_dict</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">old</span><span class="p">,</span> <span class="n">new</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="s2">&quot;GAVLIFMPWSCTYHKRQEND&quot;</span><span class="p">,</span> <span class="s2">&quot;LLLVVLLLLTSSSSLLNDQE&quot;</span><span class="p">):</span>
+        <span class="n">mutate_dict</span><span class="p">[</span><span class="n">old</span><span class="p">]</span> <span class="o">=</span> <span class="n">new</span>
+
+    <span class="c1"># df_decoy</span>
+    <span class="k">if</span> <span class="s2">&quot;group_rank&quot;</span> <span class="ow">in</span> <span class="n">df_target</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+        <span class="n">df_decoy</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="n">df_target</span><span class="o">.</span><span class="n">group_rank</span> <span class="o">==</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">df_decoy</span> <span class="o">=</span> <span class="n">df_target</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="s2">&quot;decoy&quot;</span> <span class="ow">in</span> <span class="n">df_target</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+        <span class="n">df_decoy</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="n">df_target</span><span class="o">.</span><span class="n">decoy</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+    <span class="n">df_decoy</span> <span class="o">=</span> <span class="n">df_decoy</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">df_decoy</span><span class="p">[</span><span class="s2">&quot;decoy&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">uint8</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+
+    <span class="c1"># change fg_mz</span>
+    <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;reverse&quot;</span><span class="p">:</span>  <span class="c1"># keep KR</span>
+        <span class="n">df_decoy</span><span class="p">[</span><span class="s2">&quot;simple_seq&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">df_decoy</span><span class="p">[</span><span class="s2">&quot;simple_seq&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">str</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">str</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">df_decoy</span><span class="p">[</span><span class="s2">&quot;simple_seq&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">str</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;shift&quot;</span><span class="p">:</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">df_decoy</span><span class="p">[</span><span class="s2">&quot;simple_seq&quot;</span><span class="p">]</span>
+        <span class="n">df_decoy</span><span class="p">[</span><span class="s2">&quot;simple_seq&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">str</span><span class="p">[</span><span class="mi">2</span><span class="p">:]</span> <span class="o">+</span> <span class="n">x</span><span class="o">.</span><span class="n">str</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span>
+    <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;mutate&quot;</span><span class="p">:</span>
+        <span class="n">second_bone_C</span> <span class="o">=</span> <span class="n">df_decoy</span><span class="o">.</span><span class="n">simple_seq</span><span class="o">.</span><span class="n">str</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">operator</span><span class="o">.</span><span class="n">itemgetter</span><span class="p">(</span><span class="o">*</span><span class="n">second_bone_C</span><span class="p">)</span>
+        <span class="n">second_bone_C</span> <span class="o">=</span> <span class="n">f</span><span class="p">(</span><span class="n">mutate_dict</span><span class="p">)</span>
+
+        <span class="n">second_bone_N</span> <span class="o">=</span> <span class="n">df_decoy</span><span class="o">.</span><span class="n">simple_seq</span><span class="o">.</span><span class="n">str</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">operator</span><span class="o">.</span><span class="n">itemgetter</span><span class="p">(</span><span class="o">*</span><span class="n">second_bone_N</span><span class="p">)</span>
+        <span class="n">second_bone_N</span> <span class="o">=</span> <span class="n">f</span><span class="p">(</span><span class="n">mutate_dict</span><span class="p">)</span>
+
+        <span class="n">mutate</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">df_decoy</span><span class="o">.</span><span class="n">simple_seq</span><span class="o">.</span><span class="n">str</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="o">+</span> <span class="n">second_bone_N</span>
+            <span class="o">+</span> <span class="n">df_decoy</span><span class="o">.</span><span class="n">simple_seq</span><span class="o">.</span><span class="n">str</span><span class="p">[</span><span class="mi">2</span><span class="p">:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+            <span class="o">+</span> <span class="n">second_bone_C</span>
+            <span class="o">+</span> <span class="n">df_decoy</span><span class="o">.</span><span class="n">simple_seq</span><span class="o">.</span><span class="n">str</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="n">df_decoy</span><span class="p">[</span><span class="s2">&quot;simple_seq&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">mutate</span>
+
+    <span class="c1"># update pr_id</span>
+    <span class="n">ModifiedPeptide</span> <span class="o">=</span> <span class="n">df_decoy</span><span class="p">[</span><span class="s2">&quot;simple_seq&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span>
+        <span class="p">[</span><span class="s2">&quot;c&quot;</span><span class="p">,</span> <span class="s2">&quot;m&quot;</span><span class="p">],</span> <span class="p">[</span><span class="s2">&quot;C(UniMod:4)&quot;</span><span class="p">,</span> <span class="s2">&quot;M(UniMod:35)&quot;</span><span class="p">],</span> <span class="n">regex</span><span class="o">=</span><span class="kc">True</span>
+    <span class="p">)</span>
+    <span class="n">df_decoy</span><span class="p">[</span><span class="s2">&quot;pr_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ModifiedPeptide</span> <span class="o">+</span> <span class="n">df_decoy</span><span class="p">[</span><span class="s2">&quot;pr_charge&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+
+    <span class="c1"># drop duplicates and mismatch to target seqs</span>
+    <span class="n">df_decoy</span> <span class="o">=</span> <span class="n">df_decoy</span><span class="o">.</span><span class="n">drop_duplicates</span><span class="p">(</span><span class="n">subset</span><span class="o">=</span><span class="s2">&quot;pr_id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">bad_idx</span> <span class="o">=</span> <span class="n">df_decoy</span><span class="p">[</span><span class="s2">&quot;pr_id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;pr_id&quot;</span><span class="p">]))</span>
+    <span class="n">df_decoy</span> <span class="o">=</span> <span class="n">df_decoy</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="o">~</span><span class="n">bad_idx</span><span class="p">]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="c1"># calculating fg_mass in batches</span>
+    <span class="n">fg_mz_v</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">df_batch</span> <span class="ow">in</span> <span class="n">df_decoy</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="n">df_decoy</span><span class="o">.</span><span class="n">index</span> <span class="o">//</span> <span class="mi">50000</span><span class="p">):</span>
+        <span class="c1"># fg_anno: 2251 means y25_1</span>
+        <span class="n">cols_anno</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_anno_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">fg_anno</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="n">cols_anno</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">fg_type</span> <span class="o">=</span> <span class="p">(</span><span class="n">fg_anno</span> <span class="o">//</span> <span class="mi">1000</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>  <span class="c1"># y-2, b-1, x-3</span>
+        <span class="n">fg_charge</span> <span class="o">=</span> <span class="p">(</span><span class="n">fg_anno</span> <span class="o">%</span> <span class="mi">10</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
+        <span class="n">fg_len</span> <span class="o">=</span> <span class="p">(</span><span class="n">fg_anno</span> <span class="o">//</span> <span class="mi">10</span> <span class="o">%</span> <span class="mi">100</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
+
+        <span class="n">mass</span><span class="p">,</span> <span class="n">seq_len_cumsum</span> <span class="o">=</span> <span class="n">convert_seq_to_mass</span><span class="p">(</span><span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;simple_seq&quot;</span><span class="p">])</span>
+
+        <span class="c1"># by cuda</span>
+        <span class="n">mass</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">mass</span><span class="p">)</span>
+        <span class="n">seq_len_cumsum</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">seq_len_cumsum</span><span class="p">)</span>
+        <span class="n">fg_type</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">fg_type</span><span class="p">)</span>
+        <span class="n">fg_len</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">fg_len</span><span class="p">)</span>
+        <span class="n">fg_charge</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">fg_charge</span><span class="p">)</span>
+        <span class="n">result_fg_mz</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">create_cuda_zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">df_batch</span><span class="p">),</span> <span class="n">fg_num</span><span class="p">))</span>
+
+        <span class="c1"># kernel func</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="n">result_fg_mz</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">result_fg_mz</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">threads_per_block</span> <span class="o">=</span> <span class="mi">512</span>
+        <span class="n">blocks_per_grid</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">n</span> <span class="o">/</span> <span class="n">threads_per_block</span><span class="p">)</span>
+        <span class="n">gpu_cal_fg_mz</span><span class="p">[</span><span class="n">blocks_per_grid</span><span class="p">,</span> <span class="n">threads_per_block</span><span class="p">](</span>
+            <span class="n">n</span><span class="p">,</span> <span class="n">fg_num</span><span class="p">,</span> <span class="n">mass</span><span class="p">,</span> <span class="n">seq_len_cumsum</span><span class="p">,</span> <span class="n">fg_type</span><span class="p">,</span> <span class="n">fg_len</span><span class="p">,</span> <span class="n">fg_charge</span><span class="p">,</span> <span class="n">result_fg_mz</span>
+        <span class="p">)</span>
+        <span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+        <span class="n">fg_mz_v</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">result_fg_mz</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">())</span>
+    <span class="n">fg_mz_v</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">(</span><span class="n">fg_mz_v</span><span class="p">)</span>
+    <span class="n">cols_center</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">fg_mz_v</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])]</span>
+    <span class="n">df_decoy</span><span class="p">[</span><span class="n">cols_center</span><span class="p">]</span> <span class="o">=</span> <span class="n">fg_mz_v</span>
+    <span class="k">return</span> <span class="n">df_decoy</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">fulldia</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../developer_guide.html">Developer guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../contributing.html">Contributing to full_dia</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, sj.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

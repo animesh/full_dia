@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>full_dia.polish &#8212; fulldia 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for full_dia.polish</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">jit</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">full_dia</span><span class="w"> </span><span class="kn">import</span> <span class="n">cfg</span><span class="p">,</span> <span class="n">utils</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">full_dia.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">Logger</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">Logger</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">_</span> <span class="o">=</span> <span class="n">profile</span>
+<span class="k">except</span> <span class="ne">NameError</span><span class="p">:</span>
+
+<div class="viewcode-block" id="profile">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.polish.profile">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">func</span></div>
+
+
+
+<div class="viewcode-block" id="is_fg_share">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.polish.is_fg_share">[docs]</a>
+<span class="nd">@jit</span><span class="p">(</span><span class="n">nopython</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">nogil</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">is_fg_share</span><span class="p">(</span><span class="n">fg_mz_1</span><span class="p">,</span> <span class="n">fg_mz_2</span><span class="p">,</span> <span class="n">tol_ppm</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate how many ions in fg_mz_1 are matched to fg_mz_2.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">fg_mz_1</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">fg_mz_2</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="n">delta_mz</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">y</span><span class="p">)</span>
+    <span class="n">ppm</span> <span class="o">=</span> <span class="n">delta_mz</span> <span class="o">/</span> <span class="p">(</span><span class="n">x</span> <span class="o">+</span> <span class="mf">1e-7</span><span class="p">)</span> <span class="o">*</span> <span class="mf">1e6</span>
+    <span class="n">ppm_b</span> <span class="o">=</span> <span class="n">ppm</span> <span class="o">&lt;</span> <span class="n">tol_ppm</span>
+    <span class="n">is_share_x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">ppm_b</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:]</span><span class="o">.</span><span class="n">any</span><span class="p">()</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ppm_b</span><span class="p">))])</span>
+    <span class="n">is_share_x</span> <span class="o">=</span> <span class="n">is_share_x</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">fg_mz_1</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">is_share_x</span></div>
+
+
+
+<div class="viewcode-block" id="polish_prs_core">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.polish.polish_prs_core">[docs]</a>
+<span class="nd">@jit</span><span class="p">(</span><span class="n">nopython</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">nogil</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">parallel</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">polish_prs_core</span><span class="p">(</span>
+    <span class="n">swath_id_v</span><span class="p">,</span> <span class="n">measure_locus_v</span><span class="p">,</span> <span class="n">measure_im_v</span><span class="p">,</span> <span class="n">fg_mz_m</span><span class="p">,</span> <span class="n">tol_locus</span><span class="p">,</span> <span class="n">tol_im</span><span class="p">,</span> <span class="n">tol_ppm</span><span class="p">,</span> <span class="n">sa_m</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The big fish eats the small fish.</span>
+<span class="sd">    If a fg ion shared by more confident pr, the sa and fg_mz will be zeros.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">swath_id_v</span><span class="p">)):</span>
+        <span class="n">swath_id_i</span> <span class="o">=</span> <span class="n">swath_id_v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">measure_locus_i</span> <span class="o">=</span> <span class="n">measure_locus_v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">measure_im_i</span> <span class="o">=</span> <span class="n">measure_im_v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">fg_mz_i</span> <span class="o">=</span> <span class="n">fg_mz_m</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">swath_id_v</span><span class="p">)):</span>
+            <span class="n">swath_id_j</span> <span class="o">=</span> <span class="n">swath_id_v</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">swath_id_i</span> <span class="o">!=</span> <span class="n">swath_id_j</span><span class="p">:</span>
+                <span class="k">break</span>
+
+            <span class="n">measure_locus_j</span> <span class="o">=</span> <span class="n">measure_locus_v</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">measure_locus_i</span> <span class="o">-</span> <span class="n">measure_locus_j</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">tol_locus</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="n">measure_im_j</span> <span class="o">=</span> <span class="n">measure_im_v</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">measure_im_i</span> <span class="o">-</span> <span class="n">measure_im_j</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">tol_im</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="n">sa_i</span> <span class="o">=</span> <span class="n">sa_m</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">fg_mz_j</span> <span class="o">=</span> <span class="n">fg_mz_m</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+
+            <span class="n">is_share_v</span> <span class="o">=</span> <span class="n">is_fg_share</span><span class="p">(</span><span class="n">fg_mz_j</span><span class="p">,</span> <span class="n">fg_mz_i</span><span class="p">,</span> <span class="n">tol_ppm</span><span class="p">)</span>
+            <span class="n">is_share_v</span> <span class="o">=</span> <span class="n">is_share_v</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">sa_i</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">jj</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">is_share_v</span><span class="p">)[</span><span class="mi">0</span><span class="p">]:</span>
+                <span class="n">sa_m</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">jj</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="n">fg_mz_m</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">jj</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">return</span> <span class="n">sa_m</span><span class="p">,</span> <span class="n">fg_mz_m</span></div>
+
+
+
+<div class="viewcode-block" id="polish_prs">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.polish.polish_prs">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">polish_prs</span><span class="p">(</span>
+    <span class="n">df_input</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">tol_im</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.03</span><span class="p">,</span>
+    <span class="n">tol_ppm</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">20</span><span class="p">,</span>
+    <span class="n">tol_sa_ratio</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.75</span><span class="p">,</span>
+    <span class="n">tol_share_num</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    As individual DIA signals can be shared among multiple peptides,</span>
+<span class="sd">    an additional post-processing step is required to refine the results.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    df_input : pd.DataFrame</span>
+<span class="sd">        Provide the pr identification results.</span>
+
+<span class="sd">    tol_im : float, default = 0.03</span>
+<span class="sd">        If the bias im of two peps falls in this tolerance, they are competitors.</span>
+
+<span class="sd">    tol_ppm : float, default = 20</span>
+<span class="sd">        If the ppm of two peps falls in this tolerance, they are competitors.</span>
+
+<span class="sd">    tol_sa_ratio : float, default = 0.75</span>
+<span class="sd">        If all fragment ions of a peptide have SA values above the threshold and are more likely to originate from more confident peptides, the peptide is removed.</span>
+
+<span class="sd">    tol_share_num : int, default=5</span>
+<span class="sd">        If all fragment ions of a peptide have matched number above the threshold and are more likely to originate from more confident peptides, the peptide is removed.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    df : pd.DataFrame</span>
+<span class="sd">        The polished df.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">df_input_target</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="n">df_input</span><span class="p">[</span><span class="s2">&quot;decoy&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">df_input_decoy</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="n">df_input</span><span class="p">[</span><span class="s2">&quot;decoy&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">df_v</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">df_target</span> <span class="ow">in</span> <span class="p">[</span><span class="n">df_input_target</span><span class="p">,</span> <span class="n">df_input_decoy</span><span class="p">]:</span>
+        <span class="n">target_num_before</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_target</span><span class="p">)</span>
+
+        <span class="c1"># process I/L peptideform</span>
+        <span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;pr_IL&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;pr_id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span>
+            <span class="p">[</span><span class="s2">&quot;I&quot;</span><span class="p">,</span> <span class="s2">&quot;L&quot;</span><span class="p">],</span> <span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">],</span> <span class="n">regex</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+        <span class="n">idx_max</span> <span class="o">=</span> <span class="n">df_target</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">&quot;pr_IL&quot;</span><span class="p">)[</span><span class="s2">&quot;cscore_pr_run&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">idxmax</span><span class="p">()</span>
+        <span class="n">polish_IL_num</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_target</span><span class="p">)</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">idx_max</span><span class="p">)</span>
+        <span class="n">df_target</span> <span class="o">=</span> <span class="n">df_target</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">idx_max</span><span class="p">]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;pr_IL&quot;</span><span class="p">]</span>
+
+        <span class="c1"># tol_locus is from the half of span</span>
+        <span class="n">spans</span> <span class="o">=</span> <span class="n">df_target</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;q_pr_run&quot;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mf">0.01</span><span class="p">,</span> <span class="s2">&quot;score_elute_span&quot;</span><span class="p">]</span>
+        <span class="n">tol_locus</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="mf">0.5</span> <span class="o">*</span> <span class="n">spans</span><span class="o">.</span><span class="n">median</span><span class="p">())</span>
+
+        <span class="n">df_target</span> <span class="o">=</span> <span class="n">df_target</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span>
+            <span class="n">by</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;swath_id&quot;</span><span class="p">,</span> <span class="s2">&quot;cscore_pr_run&quot;</span><span class="p">],</span> <span class="n">ascending</span><span class="o">=</span><span class="p">[</span><span class="kc">True</span><span class="p">,</span> <span class="kc">False</span><span class="p">],</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+
+        <span class="n">swath_id_v</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;swath_id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">measure_locus_v</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;locus&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">measure_im_v</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;measure_im&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+        <span class="n">cols_center</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">fg_mz_center</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="n">cols_center</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">cols_center</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;score_ion_sa_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">14</span><span class="p">)]</span>
+        <span class="n">sa_center</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="n">cols_center</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+        <span class="n">fg_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">fg_mz_center</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">fg_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">fg_mz_m</span><span class="p">)</span>
+        <span class="n">fg_mz_m_raw</span> <span class="o">=</span> <span class="n">fg_mz_m</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+        <span class="n">sa_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">sa_center</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">sa_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">sa_m</span><span class="p">)</span>
+        <span class="n">sa_m_raw</span> <span class="o">=</span> <span class="n">sa_m</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+        <span class="n">sa_m</span><span class="p">,</span> <span class="n">fg_mz_m</span> <span class="o">=</span> <span class="n">polish_prs_core</span><span class="p">(</span>
+            <span class="n">swath_id_v</span><span class="p">,</span>
+            <span class="n">measure_locus_v</span><span class="p">,</span>
+            <span class="n">measure_im_v</span><span class="p">,</span>
+            <span class="n">fg_mz_m</span><span class="p">,</span>
+            <span class="n">tol_locus</span><span class="p">,</span>
+            <span class="n">tol_im</span><span class="p">,</span>
+            <span class="n">tol_ppm</span><span class="p">,</span>
+            <span class="n">sa_m</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># screen</span>
+        <span class="n">nonshare_ratio</span> <span class="o">=</span> <span class="n">sa_m</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1e-6</span> <span class="o">+</span> <span class="n">sa_m_raw</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+        <span class="n">good_condition1</span> <span class="o">=</span> <span class="n">nonshare_ratio</span> <span class="o">&gt;</span> <span class="n">tol_sa_ratio</span>
+        <span class="n">good_condition2</span> <span class="o">=</span> <span class="p">(</span><span class="n">fg_mz_m_raw</span> <span class="o">&gt;</span> <span class="n">fg_mz_m</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">tol_share_num</span>
+        <span class="n">good_idx</span> <span class="o">=</span> <span class="n">good_condition1</span> <span class="o">&amp;</span> <span class="n">good_condition2</span>
+        <span class="n">df_target</span> <span class="o">=</span> <span class="n">df_target</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">good_idx</span><span class="p">]</span>
+
+        <span class="n">polish_bad_num</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">good_idx</span><span class="p">)</span> <span class="o">-</span> <span class="nb">sum</span><span class="p">(</span><span class="n">good_idx</span><span class="p">)</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="s2">&quot;Removing dubious prs: </span><span class="si">{}</span><span class="s2">-</span><span class="si">{}</span><span class="s2">-</span><span class="si">{}</span><span class="s2">=</span><span class="si">{}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">target_num_before</span><span class="p">,</span> <span class="n">polish_IL_num</span><span class="p">,</span> <span class="n">polish_bad_num</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_target</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
+        <span class="n">df_v</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">df_target</span><span class="p">)</span>
+
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">df_v</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">cfg</span><span class="o">.</span><span class="n">is_compare_mode</span><span class="p">:</span>
+        <span class="n">utils</span><span class="o">.</span><span class="n">cal_acc_recall</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">ws_single</span><span class="p">,</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="p">[</span><span class="s2">&quot;decoy&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">],</span> <span class="n">diann_q_pr</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">df</span></div>
+
+
+
+<div class="viewcode-block" id="make_interference_areas_zero_core">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.polish.make_interference_areas_zero_core">[docs]</a>
+<span class="nd">@jit</span><span class="p">(</span><span class="n">nopython</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">nogil</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">parallel</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_interference_areas_zero_core</span><span class="p">(</span>
+    <span class="n">swath_id_v</span><span class="p">,</span>
+    <span class="n">measure_locus_v</span><span class="p">,</span>
+    <span class="n">measure_im_v</span><span class="p">,</span>
+    <span class="n">fg_mz_m</span><span class="p">,</span>
+    <span class="n">area_m</span><span class="p">,</span>
+    <span class="n">sa_m</span><span class="p">,</span>
+    <span class="n">tol_locus</span><span class="p">,</span>
+    <span class="n">tol_im</span><span class="p">,</span>
+    <span class="n">tol_ppm</span><span class="p">,</span>
+    <span class="n">other_idx</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The big fish eats the small fish.</span>
+<span class="sd">    If a fg ion shared by more confident pr, the sa and fg_mz will be zeros.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">other_idx</span><span class="p">):</span>
+        <span class="n">swath_id_i</span> <span class="o">=</span> <span class="n">swath_id_v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">measure_locus_i</span> <span class="o">=</span> <span class="n">measure_locus_v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">measure_im_i</span> <span class="o">=</span> <span class="n">measure_im_v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">fg_mz_i</span> <span class="o">=</span> <span class="n">fg_mz_m</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">other_idx</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">swath_id_v</span><span class="p">)):</span>
+            <span class="n">swath_id_j</span> <span class="o">=</span> <span class="n">swath_id_v</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">swath_id_i</span> <span class="o">!=</span> <span class="n">swath_id_j</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="n">measure_locus_j</span> <span class="o">=</span> <span class="n">measure_locus_v</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">measure_locus_i</span> <span class="o">-</span> <span class="n">measure_locus_j</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">tol_locus</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="n">measure_im_j</span> <span class="o">=</span> <span class="n">measure_im_v</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">measure_im_i</span> <span class="o">-</span> <span class="n">measure_im_j</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">tol_im</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="n">fg_mz_j</span> <span class="o">=</span> <span class="n">fg_mz_m</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+
+            <span class="n">is_share_v</span> <span class="o">=</span> <span class="n">is_fg_share</span><span class="p">(</span><span class="n">fg_mz_j</span><span class="p">,</span> <span class="n">fg_mz_i</span><span class="p">,</span> <span class="n">tol_ppm</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">jj</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">is_share_v</span><span class="p">)[</span><span class="mi">0</span><span class="p">]:</span>
+                <span class="n">sa_m</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">jj</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="n">area_m</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">jj</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">return</span> <span class="n">area_m</span><span class="p">,</span> <span class="n">sa_m</span></div>
+
+
+
+<div class="viewcode-block" id="make_interference_areas_zero">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.polish.make_interference_areas_zero">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_interference_areas_zero</span><span class="p">(</span>
+    <span class="n">df_input</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">tol_locus</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+    <span class="n">tol_im</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.03</span><span class="p">,</span>
+    <span class="n">tol_ppm</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">20</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    In global analysis, if a fragment ion maybe produced by a more confident pr,</span>
+<span class="sd">    its area and SA score will be made to zeros.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    df_input : pd.DataFrame</span>
+<span class="sd">        Provide the identification info on the run level.</span>
+
+<span class="sd">    tol_locus : int, default = 3</span>
+<span class="sd">        If the bias locus of two peps falls in this tolerance, they are competitors.</span>
+
+<span class="sd">    tol_im : float, default = 0.03</span>
+<span class="sd">        If the bias im of two peps falls in this tolerance, they are competitors.</span>
+
+<span class="sd">    tol_ppm : float, default = 20</span>
+<span class="sd">        If the ppm of two fragment ions falls in this tolerance, they are competitors.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    df : pd.DataFrame</span>
+<span class="sd">        The intensities and SA values of fragment ions that lose the competition are set to zero.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">df_target</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="n">df_input</span><span class="p">[</span><span class="s2">&quot;decoy&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">df_decoy</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="n">df_input</span><span class="p">[</span><span class="s2">&quot;decoy&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+    <span class="n">df_target</span> <span class="o">=</span> <span class="n">df_target</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span>
+        <span class="n">by</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;cscore_pr_run&quot;</span><span class="p">],</span>
+        <span class="n">ascending</span><span class="o">=</span><span class="p">[</span><span class="kc">False</span><span class="p">],</span>
+        <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># &#39;cscore_pr_global</span>
+    <span class="p">)</span>  <span class="c1"># NA is positing end</span>
+
+    <span class="n">swath_id_v</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;swath_id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">measure_locus_v</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;locus&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">measure_im_v</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;measure_im&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+    <span class="n">cols_center</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+    <span class="n">fg_mz_m</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="n">cols_center</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">fg_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">fg_mz_m</span><span class="p">)</span>
+
+    <span class="n">cols_quant</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;score_ion_quant_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">14</span><span class="p">)]</span>
+    <span class="n">area_m</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="n">cols_quant</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">area_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">area_m</span><span class="p">)</span>
+
+    <span class="n">cols_sa</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;score_ion_sa_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">14</span><span class="p">)]</span>
+    <span class="n">sa_m</span> <span class="o">=</span> <span class="n">df_target</span><span class="p">[</span><span class="n">cols_sa</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">sa_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">sa_m</span><span class="p">)</span>
+
+    <span class="n">other_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">df_target</span><span class="p">[</span><span class="s2">&quot;cscore_pr_run&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">isna</span><span class="p">())[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="n">area_m</span><span class="p">,</span> <span class="n">sa_m</span> <span class="o">=</span> <span class="n">make_interference_areas_zero_core</span><span class="p">(</span>
+        <span class="n">swath_id_v</span><span class="p">,</span>
+        <span class="n">measure_locus_v</span><span class="p">,</span>
+        <span class="n">measure_im_v</span><span class="p">,</span>
+        <span class="n">fg_mz_m</span><span class="p">,</span>
+        <span class="n">area_m</span><span class="p">,</span>
+        <span class="n">sa_m</span><span class="p">,</span>
+        <span class="n">tol_locus</span><span class="p">,</span>
+        <span class="n">tol_im</span><span class="p">,</span>
+        <span class="n">tol_ppm</span><span class="p">,</span>
+        <span class="n">other_idx</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">bad_idx</span> <span class="o">=</span> <span class="p">(</span><span class="n">area_m</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">sa_m</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">area_m</span><span class="p">[</span><span class="n">bad_idx</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">sa_m</span><span class="p">[</span><span class="n">bad_idx</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">df_target</span><span class="p">[</span><span class="n">cols_quant</span><span class="p">]</span> <span class="o">=</span> <span class="n">area_m</span>
+    <span class="n">df_target</span><span class="p">[</span><span class="n">cols_sa</span><span class="p">]</span> <span class="o">=</span> <span class="n">sa_m</span>
+
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">df_target</span><span class="p">,</span> <span class="n">df_decoy</span><span class="p">],</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">df</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">fulldia</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../developer_guide.html">Developer guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../contributing.html">Contributing to full_dia</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, sj.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

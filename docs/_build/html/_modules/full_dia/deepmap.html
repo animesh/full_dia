@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>full_dia.deepmap &#8212; fulldia 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for full_dia.deepmap</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">full_dia</span><span class="w"> </span><span class="kn">import</span> <span class="n">cfg</span><span class="p">,</span> <span class="n">models</span><span class="p">,</span> <span class="n">utils</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">full_dia.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_cuda_zeros</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">_</span> <span class="o">=</span> <span class="n">profile</span>
+<span class="k">except</span> <span class="ne">NameError</span><span class="p">:</span>
+
+<div class="viewcode-block" id="profile">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.deepmap.profile">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">func</span></div>
+
+
+
+<div class="viewcode-block" id="load_models">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.deepmap.load_models">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_models</span><span class="p">(</span><span class="n">dir_center</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dir_big</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Load DeepProfile-14 and DeepProfile-56 models.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">channels</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">+</span> <span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span>
+    <span class="n">model_center</span> <span class="o">=</span> <span class="n">load_model_center</span><span class="p">(</span><span class="n">dir_center</span><span class="p">,</span> <span class="n">channels</span><span class="p">)</span>
+
+    <span class="n">channels</span> <span class="o">=</span> <span class="mi">4</span> <span class="o">*</span> <span class="p">(</span><span class="mi">2</span> <span class="o">+</span> <span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)</span>
+    <span class="n">model_big</span> <span class="o">=</span> <span class="n">load_model_big</span><span class="p">(</span><span class="n">dir_big</span><span class="p">,</span> <span class="n">channels</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">model_center</span><span class="p">,</span> <span class="n">model_big</span></div>
+
+
+
+<div class="viewcode-block" id="load_model_big">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.deepmap.load_model_big">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_model_big</span><span class="p">(</span><span class="n">dir_model</span><span class="p">,</span> <span class="n">n_channel</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Load DeepProfile-56 model.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">DeepMap</span><span class="p">(</span><span class="n">n_channel</span><span class="p">)</span>
+    <span class="n">device</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">gpu_id</span>
+    <span class="k">if</span> <span class="n">dir_model</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">pt_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;pretrained&quot;</span> <span class="o">/</span> <span class="s2">&quot;deepbig_ys_fast.pt&quot;</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">pt_path</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="n">device</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">dir_model</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="n">device</span><span class="p">))</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">model</span></div>
+
+
+
+<div class="viewcode-block" id="load_model_center">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.deepmap.load_model_center">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_model_center</span><span class="p">(</span><span class="n">dir_model</span><span class="p">,</span> <span class="n">n_channel</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Load DeepProfile-14 model.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">DeepMap</span><span class="p">(</span><span class="n">n_channel</span><span class="p">)</span>
+    <span class="n">device</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">gpu_id</span>
+    <span class="k">if</span> <span class="n">dir_model</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">pt_path</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;pretrained&quot;</span> <span class="o">/</span> <span class="s2">&quot;deepcenter_ys_fast.pt&quot;</span>
+        <span class="p">)</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">pt_path</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="n">device</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">dir_model</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="n">device</span><span class="p">))</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">model</span></div>
+
+
+
+<div class="viewcode-block" id="find_first_index">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.deepmap.find_first_index">[docs]</a>
+<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">find_first_index</span><span class="p">(</span><span class="n">scan_mz</span><span class="p">,</span> <span class="n">query_left</span><span class="p">,</span> <span class="n">query_right</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Find first index that match the query value</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    scan_mz : cuda.array</span>
+<span class="sd">        MS data of a cycle with m/z ascending order.</span>
+
+<span class="sd">    query_left : float</span>
+<span class="sd">        The target m/z value with - ppm.</span>
+
+<span class="sd">    query_right : float</span>
+<span class="sd">        The target m/z value with + ppm.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    best_j : int</span>
+<span class="sd">        The index of the first m/z that matches the query.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">scan_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">scan_mz</span><span class="p">)</span>
+
+    <span class="n">low</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">high</span> <span class="o">=</span> <span class="n">scan_len</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="n">best_j</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">low</span><span class="p">]</span> <span class="o">==</span> <span class="n">query_left</span><span class="p">:</span>
+        <span class="n">best_j</span> <span class="o">=</span> <span class="n">low</span>
+    <span class="k">elif</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">high</span><span class="p">]</span> <span class="o">==</span> <span class="n">query_right</span><span class="p">:</span>
+        <span class="n">best_j</span> <span class="o">=</span> <span class="n">high</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">while</span> <span class="n">high</span> <span class="o">-</span> <span class="n">low</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">mid</span> <span class="o">=</span> <span class="p">(</span><span class="n">low</span> <span class="o">+</span> <span class="n">high</span><span class="p">)</span> <span class="o">//</span> <span class="mi">2</span>
+            <span class="k">if</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">mid</span><span class="p">]</span> <span class="o">==</span> <span class="n">query_left</span><span class="p">:</span>
+                <span class="n">best_j</span> <span class="o">=</span> <span class="n">mid</span>
+                <span class="k">break</span>
+            <span class="k">if</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">mid</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">query_left</span><span class="p">:</span>
+                <span class="n">low</span> <span class="o">=</span> <span class="n">mid</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">high</span> <span class="o">=</span> <span class="n">mid</span>
+        <span class="k">if</span> <span class="n">best_j</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># on match，high-low=1</span>
+            <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">scan_mz</span><span class="p">[</span><span class="n">low</span><span class="p">]</span> <span class="o">-</span> <span class="n">query_left</span><span class="p">)</span> <span class="o">&lt;</span> <span class="nb">abs</span><span class="p">(</span><span class="n">scan_mz</span><span class="p">[</span><span class="n">high</span><span class="p">]</span> <span class="o">-</span> <span class="n">query_left</span><span class="p">):</span>
+                <span class="n">best_j</span> <span class="o">=</span> <span class="n">low</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">best_j</span> <span class="o">=</span> <span class="n">high</span>
+    <span class="c1"># find first match in list!</span>
+    <span class="k">while</span> <span class="n">best_j</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">best_j</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">best_j</span><span class="p">]:</span>
+            <span class="n">best_j</span> <span class="o">=</span> <span class="n">best_j</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">break</span>
+
+    <span class="k">return</span> <span class="n">best_j</span></div>
+
+
+
+<div class="viewcode-block" id="gpu_bin_map">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.deepmap.gpu_bin_map">[docs]</a>
+<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">gpu_bin_map</span><span class="p">(</span>
+    <span class="n">n</span><span class="p">,</span>
+    <span class="n">cycle_num</span><span class="p">,</span>
+    <span class="n">idx_start_v</span><span class="p">,</span>
+    <span class="n">ms1_scan_seek_idx</span><span class="p">,</span>
+    <span class="n">ms1_scan_im</span><span class="p">,</span>
+    <span class="n">ms1_scan_mz</span><span class="p">,</span>
+    <span class="n">ms1_scan_height</span><span class="p">,</span>
+    <span class="n">ms2_scan_seek_idx</span><span class="p">,</span>
+    <span class="n">ms2_scan_im</span><span class="p">,</span>
+    <span class="n">ms2_scan_mz</span><span class="p">,</span>
+    <span class="n">ms2_scan_height</span><span class="p">,</span>
+    <span class="n">query_mz_m</span><span class="p">,</span>
+    <span class="n">ppm_tolerance</span><span class="p">,</span>
+    <span class="n">query_im_v</span><span class="p">,</span>
+    <span class="n">im_tolerance</span><span class="p">,</span>
+    <span class="n">im_gap</span><span class="p">,</span>
+    <span class="n">result_maps</span><span class="p">,</span>
+    <span class="n">ms1_ion_num</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Each CUDA thread generates a map (cycle + mobility + intensity) of an elution group.</span>
+<span class="sd">    When multiple signals fall into the same bin, retain only the one with the highest intensity.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">thread_idx</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">threadIdx</span><span class="o">.</span><span class="n">x</span> <span class="o">+</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockDim</span><span class="o">.</span><span class="n">x</span> <span class="o">*</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockIdx</span><span class="o">.</span><span class="n">x</span>
+    <span class="k">if</span> <span class="n">thread_idx</span> <span class="o">&gt;=</span> <span class="n">n</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="c1"># pr idx, ion idx</span>
+    <span class="n">ions_num</span> <span class="o">=</span> <span class="n">query_mz_m</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">k</span> <span class="o">=</span> <span class="n">thread_idx</span> <span class="o">//</span> <span class="n">ions_num</span>
+    <span class="n">ion_idx</span> <span class="o">=</span> <span class="n">thread_idx</span> <span class="o">%</span> <span class="n">ions_num</span>
+
+    <span class="c1"># params</span>
+    <span class="n">query_mz</span> <span class="o">=</span> <span class="n">query_mz_m</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">ion_idx</span><span class="p">]</span>
+    <span class="n">query_mz_left</span> <span class="o">=</span> <span class="n">query_mz</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">ppm_tolerance</span> <span class="o">/</span> <span class="mf">1000000.0</span><span class="p">)</span>
+    <span class="n">query_mz_right</span> <span class="o">=</span> <span class="n">query_mz</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">ppm_tolerance</span> <span class="o">/</span> <span class="mf">1000000.0</span><span class="p">)</span>
+    <span class="n">query_im</span> <span class="o">=</span> <span class="n">query_im_v</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+    <span class="n">query_im_left</span> <span class="o">=</span> <span class="n">query_im</span> <span class="o">-</span> <span class="n">im_tolerance</span>
+    <span class="n">query_im_right</span> <span class="o">=</span> <span class="n">query_im</span> <span class="o">+</span> <span class="n">im_tolerance</span>
+    <span class="n">im_base</span> <span class="o">=</span> <span class="n">query_im</span> <span class="o">-</span> <span class="n">im_tolerance</span>
+
+    <span class="c1"># both for ms1 and ms2</span>
+    <span class="n">idx_start</span> <span class="o">=</span> <span class="n">idx_start_v</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+    <span class="n">idx_end</span> <span class="o">=</span> <span class="n">idx_start</span> <span class="o">+</span> <span class="n">cycle_num</span>
+
+    <span class="k">if</span> <span class="n">ion_idx</span> <span class="o">&lt;</span> <span class="n">ms1_ion_num</span><span class="p">:</span>
+        <span class="n">scans_seek_idx</span> <span class="o">=</span> <span class="n">ms1_scan_seek_idx</span>
+        <span class="n">scans_im</span> <span class="o">=</span> <span class="n">ms1_scan_im</span>
+        <span class="n">scans_mz</span> <span class="o">=</span> <span class="n">ms1_scan_mz</span>
+        <span class="n">scans_height</span> <span class="o">=</span> <span class="n">ms1_scan_height</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">scans_seek_idx</span> <span class="o">=</span> <span class="n">ms2_scan_seek_idx</span>
+        <span class="n">scans_im</span> <span class="o">=</span> <span class="n">ms2_scan_im</span>
+        <span class="n">scans_mz</span> <span class="o">=</span> <span class="n">ms2_scan_mz</span>
+        <span class="n">scans_height</span> <span class="o">=</span> <span class="n">ms2_scan_height</span>
+    <span class="k">for</span> <span class="n">cycle_idx</span><span class="p">,</span> <span class="n">scan_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">idx_start</span><span class="p">,</span> <span class="n">idx_end</span><span class="p">)):</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="n">scans_seek_idx</span><span class="p">[</span><span class="n">scan_idx</span><span class="p">]</span>
+        <span class="n">end</span> <span class="o">=</span> <span class="n">scans_seek_idx</span><span class="p">[</span><span class="n">scan_idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">scan_len</span> <span class="o">=</span> <span class="n">end</span> <span class="o">-</span> <span class="n">start</span>
+        <span class="n">scan_im</span> <span class="o">=</span> <span class="n">scans_im</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span>
+        <span class="n">scan_mz</span> <span class="o">=</span> <span class="n">scans_mz</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span>
+        <span class="n">scan_height</span> <span class="o">=</span> <span class="n">scans_height</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span>
+
+        <span class="n">seek</span> <span class="o">=</span> <span class="n">find_first_index</span><span class="p">(</span><span class="n">scan_mz</span><span class="p">,</span> <span class="n">query_mz_left</span><span class="p">,</span> <span class="n">query_mz_right</span><span class="p">)</span>
+
+        <span class="k">while</span> <span class="n">seek</span> <span class="o">&lt;</span> <span class="n">scan_len</span><span class="p">:</span>
+            <span class="n">mz</span> <span class="o">=</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">seek</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">mz</span> <span class="o">&gt;</span> <span class="n">query_mz_right</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="k">elif</span> <span class="n">mz</span> <span class="o">&lt;</span> <span class="n">query_mz_left</span><span class="p">:</span>  <span class="c1"># exist multiple mz values</span>
+                <span class="n">seek</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">continue</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">im</span> <span class="o">=</span> <span class="n">scan_im</span><span class="p">[</span><span class="n">seek</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">query_im_left</span> <span class="o">&lt;</span> <span class="n">im</span> <span class="o">&lt;</span> <span class="n">query_im_right</span><span class="p">:</span>
+                    <span class="n">y</span> <span class="o">=</span> <span class="n">scan_height</span><span class="p">[</span><span class="n">seek</span><span class="p">]</span>
+                    <span class="n">im_idx</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">im</span> <span class="o">-</span> <span class="n">im_base</span><span class="p">)</span> <span class="o">/</span> <span class="n">im_gap</span><span class="p">)</span>
+                    <span class="n">y_map_curr</span> <span class="o">=</span> <span class="n">result_maps</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">ion_idx</span><span class="p">,</span> <span class="n">cycle_idx</span><span class="p">,</span> <span class="n">im_idx</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="n">y</span> <span class="o">&gt;</span> <span class="n">y_map_curr</span><span class="p">:</span>
+                        <span class="n">result_maps</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">ion_idx</span><span class="p">,</span> <span class="n">cycle_idx</span><span class="p">,</span> <span class="n">im_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">y</span>
+                <span class="n">seek</span> <span class="o">+=</span> <span class="mi">1</span></div>
+
+
+
+<div class="viewcode-block" id="gpu_bin_maps">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.deepmap.gpu_bin_maps">[docs]</a>
+<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">gpu_bin_maps</span><span class="p">(</span>
+    <span class="n">n</span><span class="p">,</span>
+    <span class="n">locus_num</span><span class="p">,</span>
+    <span class="n">cycle_num</span><span class="p">,</span>
+    <span class="n">idx_start_m</span><span class="p">,</span>
+    <span class="n">ms1_scan_seek_idx</span><span class="p">,</span>
+    <span class="n">ms1_scan_im</span><span class="p">,</span>
+    <span class="n">ms1_scan_mz</span><span class="p">,</span>
+    <span class="n">ms1_scan_height</span><span class="p">,</span>
+    <span class="n">ms2_scan_seek_idx</span><span class="p">,</span>
+    <span class="n">ms2_scan_im</span><span class="p">,</span>
+    <span class="n">ms2_scan_mz</span><span class="p">,</span>
+    <span class="n">ms2_scan_height</span><span class="p">,</span>
+    <span class="n">query_mz_m</span><span class="p">,</span>
+    <span class="n">tol_ppm</span><span class="p">,</span>
+    <span class="n">query_im_v</span><span class="p">,</span>
+    <span class="n">tol_im_map</span><span class="p">,</span>
+    <span class="n">im_gap</span><span class="p">,</span>
+    <span class="n">result_maps</span><span class="p">,</span>
+    <span class="n">ms1_ion_num</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    maps: [n_pr, n_locus, n_ion, n_cycle, n_im_bin]</span>
+<span class="sd">    Each thread generates maps for multi elution groups of a pr</span>
+<span class="sd">    When multiple signals fall into the same bin, retain only the one with the highest intensity.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">thread_idx</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">threadIdx</span><span class="o">.</span><span class="n">x</span> <span class="o">+</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockDim</span><span class="o">.</span><span class="n">x</span> <span class="o">*</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockIdx</span><span class="o">.</span><span class="n">x</span>
+    <span class="k">if</span> <span class="n">thread_idx</span> <span class="o">&gt;=</span> <span class="n">n</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="c1"># pr idx, ion idx</span>
+    <span class="n">ions_num</span> <span class="o">=</span> <span class="n">query_mz_m</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">locus_per_peptide</span> <span class="o">=</span> <span class="n">locus_num</span> <span class="o">*</span> <span class="n">ions_num</span>
+    <span class="n">k</span> <span class="o">=</span> <span class="n">thread_idx</span> <span class="o">//</span> <span class="n">locus_per_peptide</span>
+    <span class="n">locus</span> <span class="o">=</span> <span class="n">thread_idx</span> <span class="o">%</span> <span class="n">locus_per_peptide</span> <span class="o">//</span> <span class="n">ions_num</span>
+    <span class="n">ion_idx</span> <span class="o">=</span> <span class="n">thread_idx</span> <span class="o">%</span> <span class="n">locus_per_peptide</span> <span class="o">%</span> <span class="n">ions_num</span>
+
+    <span class="c1"># params</span>
+    <span class="n">query_mz</span> <span class="o">=</span> <span class="n">query_mz_m</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">ion_idx</span><span class="p">]</span>
+    <span class="n">query_mz_left</span> <span class="o">=</span> <span class="n">query_mz</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">tol_ppm</span> <span class="o">/</span> <span class="mf">1000000.0</span><span class="p">)</span>
+    <span class="n">query_mz_right</span> <span class="o">=</span> <span class="n">query_mz</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">tol_ppm</span> <span class="o">/</span> <span class="mf">1000000.0</span><span class="p">)</span>
+    <span class="n">query_im</span> <span class="o">=</span> <span class="n">query_im_v</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+    <span class="n">query_im_left</span> <span class="o">=</span> <span class="n">query_im</span> <span class="o">-</span> <span class="n">tol_im_map</span>
+    <span class="n">query_im_right</span> <span class="o">=</span> <span class="n">query_im</span> <span class="o">+</span> <span class="n">tol_im_map</span>
+    <span class="n">im_base</span> <span class="o">=</span> <span class="n">query_im</span> <span class="o">-</span> <span class="n">tol_im_map</span>
+
+    <span class="c1">## both for ms1 and ms2</span>
+    <span class="n">idx_start</span> <span class="o">=</span> <span class="n">idx_start_m</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">locus</span><span class="p">]</span>
+    <span class="n">idx_end</span> <span class="o">=</span> <span class="n">idx_start</span> <span class="o">+</span> <span class="n">cycle_num</span>
+
+    <span class="k">if</span> <span class="n">ion_idx</span> <span class="o">&lt;</span> <span class="n">ms1_ion_num</span><span class="p">:</span>
+        <span class="n">scans_seek_idx</span> <span class="o">=</span> <span class="n">ms1_scan_seek_idx</span>
+        <span class="n">scans_im</span> <span class="o">=</span> <span class="n">ms1_scan_im</span>
+        <span class="n">scans_mz</span> <span class="o">=</span> <span class="n">ms1_scan_mz</span>
+        <span class="n">scans_height</span> <span class="o">=</span> <span class="n">ms1_scan_height</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">scans_seek_idx</span> <span class="o">=</span> <span class="n">ms2_scan_seek_idx</span>
+        <span class="n">scans_im</span> <span class="o">=</span> <span class="n">ms2_scan_im</span>
+        <span class="n">scans_mz</span> <span class="o">=</span> <span class="n">ms2_scan_mz</span>
+        <span class="n">scans_height</span> <span class="o">=</span> <span class="n">ms2_scan_height</span>
+
+    <span class="k">for</span> <span class="n">cycle_idx</span><span class="p">,</span> <span class="n">scan_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">idx_start</span><span class="p">,</span> <span class="n">idx_end</span><span class="p">)):</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="n">scans_seek_idx</span><span class="p">[</span><span class="n">scan_idx</span><span class="p">]</span>
+        <span class="n">end</span> <span class="o">=</span> <span class="n">scans_seek_idx</span><span class="p">[</span><span class="n">scan_idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">scan_len</span> <span class="o">=</span> <span class="n">end</span> <span class="o">-</span> <span class="n">start</span>
+        <span class="n">scan_im</span> <span class="o">=</span> <span class="n">scans_im</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span>
+        <span class="n">scan_mz</span> <span class="o">=</span> <span class="n">scans_mz</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span>
+        <span class="n">scan_height</span> <span class="o">=</span> <span class="n">scans_height</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span>
+
+        <span class="n">seek</span> <span class="o">=</span> <span class="n">find_first_index</span><span class="p">(</span><span class="n">scan_mz</span><span class="p">,</span> <span class="n">query_mz_left</span><span class="p">,</span> <span class="n">query_mz_right</span><span class="p">)</span>
+        <span class="k">while</span> <span class="n">seek</span> <span class="o">&lt;</span> <span class="n">scan_len</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">seek</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="n">query_mz_right</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="k">elif</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="n">query_mz_left</span><span class="p">:</span>  <span class="c1"># exist multi mz values</span>
+                <span class="n">seek</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">continue</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">im</span> <span class="o">=</span> <span class="n">scan_im</span><span class="p">[</span><span class="n">seek</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">query_im_left</span> <span class="o">&lt;</span> <span class="n">im</span> <span class="o">&lt;</span> <span class="n">query_im_right</span><span class="p">:</span>
+                    <span class="n">y</span> <span class="o">=</span> <span class="n">scan_height</span><span class="p">[</span><span class="n">seek</span><span class="p">]</span>
+                    <span class="n">im_idx</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">im</span> <span class="o">-</span> <span class="n">im_base</span><span class="p">)</span> <span class="o">/</span> <span class="n">im_gap</span><span class="p">)</span>
+                    <span class="n">y_curr</span> <span class="o">=</span> <span class="n">result_maps</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">locus</span><span class="p">,</span> <span class="n">ion_idx</span><span class="p">,</span> <span class="n">cycle_idx</span><span class="p">,</span> <span class="n">im_idx</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="n">y</span> <span class="o">&gt;</span> <span class="n">y_curr</span><span class="p">:</span>
+                        <span class="n">result_maps</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">locus</span><span class="p">,</span> <span class="n">ion_idx</span><span class="p">,</span> <span class="n">cycle_idx</span><span class="p">,</span> <span class="n">im_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">y</span>
+                <span class="n">seek</span> <span class="o">+=</span> <span class="mi">1</span></div>
+
+
+
+<div class="viewcode-block" id="extract_maps">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.deepmap.extract_maps">[docs]</a>
+<span class="nd">@profile</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_maps</span><span class="p">(</span>
+    <span class="n">df_batch</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">idx_start_m</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+    <span class="n">locus_num</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">cycle_num</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">map_im_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">map_gpu_ms1</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">map_gpu_ms2</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">tol_ppm</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">tol_im_map</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">im_gap</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">neutron_num</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Extrac maps for multi elution groups of a pr.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    df_batch : pd.DataFrame</span>
+<span class="sd">        Provide pr info.</span>
+
+<span class="sd">    idx_start_m : np.ndarray</span>
+<span class="sd">        Cycle start index.</span>
+
+<span class="sd">    locus_num : int</span>
+<span class="sd">        How many locus to extract for a pr.</span>
+
+<span class="sd">    cycle_num : int</span>
+<span class="sd">        How many cycle to extract for a pr. Default 13.</span>
+
+<span class="sd">    map_im_size : float</span>
+<span class="sd">        Default 50.</span>
+
+<span class="sd">    map_gpu_ms1 : dict</span>
+<span class="sd">        Provide the MS1 data.</span>
+
+<span class="sd">    map_gpu_ms2 : dict</span>
+<span class="sd">        Provide the MS2 data.</span>
+
+<span class="sd">    tol_ppm : float</span>
+<span class="sd">        The tolerance of ppm.</span>
+
+<span class="sd">    tol_im_map : float</span>
+<span class="sd">        The tolerance of im.</span>
+
+<span class="sd">    im_gap : float</span>
+<span class="sd">        The bin width of im in a map.</span>
+
+<span class="sd">    neutron_num : int</span>
+<span class="sd">        Specify the neutron num.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    Maps : torch.Tensor</span>
+<span class="sd">        The extracted maps.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">batch_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_batch</span><span class="p">)</span>
+
+    <span class="n">idx_start</span> <span class="o">=</span> <span class="n">idx_start_m</span><span class="p">[</span><span class="n">df_batch</span><span class="o">.</span><span class="n">index</span><span class="p">]</span>
+
+    <span class="c1"># params</span>
+    <span class="k">if</span> <span class="n">neutron_num</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+        <span class="n">query_mz_ms1</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;pr_mz_left&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">query_mz_ms1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">query_mz_ms1</span><span class="p">,</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">T</span>
+        <span class="n">query_mz_ms2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;fg_mz_left&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+        <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">query_mz_ms1</span><span class="p">,</span> <span class="n">query_mz_ms2</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">ms1_ion_num</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">elif</span> <span class="n">neutron_num</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">query_mz_ms1</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;pr_mz&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">query_mz_ms1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">query_mz_ms1</span><span class="p">,</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">T</span>
+        <span class="n">cols_center</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">query_mz_ms2</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="n">cols_center</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">query_mz_ms1</span><span class="p">,</span> <span class="n">query_mz_ms2</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">ms1_ion_num</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">elif</span> <span class="n">neutron_num</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">query_mz_ms1</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;pr_mz_1H&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">query_mz_ms1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">query_mz_ms1</span><span class="p">,</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">T</span>
+        <span class="n">cols_1H</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_1H_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">query_mz_ms2</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="n">cols_1H</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">query_mz_ms1</span><span class="p">,</span> <span class="n">query_mz_ms2</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">ms1_ion_num</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">elif</span> <span class="n">neutron_num</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="n">query_mz_ms1</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;pr_mz_2H&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">query_mz_ms1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">query_mz_ms1</span><span class="p">,</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">T</span>
+        <span class="n">cols_2H</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_2H_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">query_mz_ms2</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="n">cols_2H</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">query_mz_ms1</span><span class="p">,</span> <span class="n">query_mz_ms2</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">ms1_ion_num</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">elif</span> <span class="n">neutron_num</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>  <span class="c1"># total</span>
+        <span class="n">ms1_cols</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s2">&quot;pr_mz_left&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz_1H&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz_2H&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz_left&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz_1H&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz_2H&quot;</span><span class="p">,</span>
+        <span class="p">]</span>  <span class="c1"># unfrag</span>
+        <span class="n">ms1</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="n">ms1_cols</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">cols_left</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_left_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">left</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="n">cols_left</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">cols_center</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">center</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="n">cols_center</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">cols_1H</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_1H_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">fg_1H</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="n">cols_1H</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">cols_2H</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_2H_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">fg_2H</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="n">cols_2H</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">ms1</span><span class="p">,</span> <span class="n">left</span><span class="p">,</span> <span class="n">center</span><span class="p">,</span> <span class="n">fg_1H</span><span class="p">,</span> <span class="n">fg_2H</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">ms1_ion_num</span> <span class="o">=</span> <span class="mi">4</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;neutron_num in extract_maps has to be [-1, 1, 2, &gt;2]&quot;</span><span class="p">)</span>
+
+    <span class="n">query_im_v</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;measure_im&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+    <span class="c1"># GPU</span>
+    <span class="n">idx_start</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">idx_start</span><span class="p">)</span>
+    <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">query_mz_m</span><span class="p">)</span>
+    <span class="n">query_im_v</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">query_im_v</span><span class="p">)</span>
+    <span class="n">result_maps</span> <span class="o">=</span> <span class="n">create_cuda_zeros</span><span class="p">(</span>
+        <span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">locus_num</span><span class="p">,</span> <span class="n">query_mz_m</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">cycle_num</span><span class="p">,</span> <span class="n">map_im_size</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="c1"># kernel func, each thread generates maps for a pr</span>
+    <span class="n">k</span> <span class="o">=</span> <span class="n">batch_size</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="n">k</span> <span class="o">*</span> <span class="n">locus_num</span> <span class="o">*</span> <span class="n">query_mz_m</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">threads_per_block</span> <span class="o">=</span> <span class="mi">512</span>
+    <span class="n">blocks_per_grid</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">n</span> <span class="o">/</span> <span class="n">threads_per_block</span><span class="p">)</span>
+    <span class="n">gpu_bin_maps</span><span class="p">[</span><span class="n">blocks_per_grid</span><span class="p">,</span> <span class="n">threads_per_block</span><span class="p">](</span>
+        <span class="n">n</span><span class="p">,</span>
+        <span class="n">locus_num</span><span class="p">,</span>
+        <span class="n">cycle_num</span><span class="p">,</span>
+        <span class="n">idx_start</span><span class="p">,</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_seek_idx&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_im&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_mz&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_height&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_seek_idx&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_im&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_mz&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_height&quot;</span><span class="p">],</span>
+        <span class="n">query_mz_m</span><span class="p">,</span>
+        <span class="n">tol_ppm</span><span class="p">,</span>
+        <span class="n">query_im_v</span><span class="p">,</span>
+        <span class="n">tol_im_map</span><span class="p">,</span>
+        <span class="n">im_gap</span><span class="p">,</span>
+        <span class="n">result_maps</span><span class="p">,</span>
+        <span class="n">ms1_ion_num</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+
+    <span class="n">result_maps</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">convert_numba_to_tensor</span><span class="p">(</span><span class="n">result_maps</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">result_maps</span></div>
+
+
+
+<div class="viewcode-block" id="scoring_maps">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.deepmap.scoring_maps">[docs]</a>
+<span class="nd">@profile</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">scoring_maps</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">df_input</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">map_gpu_ms1</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">map_gpu_ms2</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">cycle_num</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">map_im_gap</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">map_im_dim</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">ppm_tolerance</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">im_tolerance</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">neutron_num</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">return_feature</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Extract and score the Profile-14 maps.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    model : torch.nn.Module</span>
+<span class="sd">        DeepProfile-14</span>
+
+<span class="sd">    df_input : pd.DataFrame</span>
+<span class="sd">        Provide the pr info.</span>
+
+<span class="sd">    map_gpu_ms1 : dict</span>
+<span class="sd">        Provide the MS1 data.</span>
+
+<span class="sd">    map_gpu_ms2 : dict</span>
+<span class="sd">        Provide the MS2 data.</span>
+
+<span class="sd">    cycle_num : int</span>
+<span class="sd">        How many cycle to extract for a pr. Default 13.</span>
+
+<span class="sd">    map_im_gap : float</span>
+<span class="sd">        The bin width of im in a map.</span>
+
+<span class="sd">    map_im_dim : float</span>
+<span class="sd">        The dimension of im in a map.</span>
+
+<span class="sd">    ppm_tolerance : float</span>
+<span class="sd">        The tolerance of ppm.</span>
+
+<span class="sd">    im_tolerance : float</span>
+<span class="sd">        The tolerance of im.</span>
+
+<span class="sd">    neutron_num : int</span>
+<span class="sd">        Specify the neutron num.</span>
+
+<span class="sd">    return_feature : bool, default=True</span>
+<span class="sd">        Whether to return feature or not.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        pred : torch.Tensor</span>
+<span class="sd">            The scores by DeepProfile-14.</span>
+
+<span class="sd">        features : np.ndarray</span>
+<span class="sd">            The features by DeepProfile-14.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># locus</span>
+    <span class="n">locus_m</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="s2">&quot;locus&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">locus_num</span> <span class="o">=</span> <span class="n">locus_m</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="c1"># cycle start and end</span>
+    <span class="n">cycle_total</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_rts&quot;</span><span class="p">])</span>
+    <span class="n">idx_start_m</span> <span class="o">=</span> <span class="n">locus_m</span> <span class="o">-</span> <span class="nb">int</span><span class="p">((</span><span class="n">cycle_num</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">idx_start_m</span><span class="p">[</span><span class="n">idx_start_m</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">idx_start_max</span> <span class="o">=</span> <span class="n">cycle_total</span> <span class="o">-</span> <span class="n">cycle_num</span>
+    <span class="n">idx_start_m</span><span class="p">[</span><span class="n">idx_start_m</span> <span class="o">&gt;</span> <span class="n">idx_start_max</span><span class="p">]</span> <span class="o">=</span> <span class="n">idx_start_max</span>
+
+    <span class="c1"># in batches</span>
+    <span class="n">feature_v</span><span class="p">,</span> <span class="n">pred_v</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
+    <span class="n">batch_num</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">batch_deep_center</span>
+    <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">df_batch</span> <span class="ow">in</span> <span class="n">df_input</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="n">df_input</span><span class="o">.</span><span class="n">index</span> <span class="o">//</span> <span class="n">batch_num</span><span class="p">):</span>
+        <span class="n">maps</span> <span class="o">=</span> <span class="n">extract_maps</span><span class="p">(</span>
+            <span class="n">df_batch</span><span class="p">,</span>
+            <span class="n">idx_start_m</span><span class="p">,</span>
+            <span class="n">locus_num</span><span class="p">,</span>
+            <span class="n">cycle_num</span><span class="p">,</span>
+            <span class="n">map_im_dim</span><span class="p">,</span>
+            <span class="n">map_gpu_ms1</span><span class="p">,</span>
+            <span class="n">map_gpu_ms2</span><span class="p">,</span>
+            <span class="n">ppm_tolerance</span><span class="p">,</span>
+            <span class="n">im_tolerance</span><span class="p">,</span>
+            <span class="n">map_im_gap</span><span class="p">,</span>
+            <span class="n">neutron_num</span><span class="o">=</span><span class="n">neutron_num</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># maps: [k, locus, 2+fg_num, map_cycle_dim, map_im_dim]</span>
+        <span class="n">maps</span> <span class="o">=</span> <span class="n">maps</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+            <span class="n">maps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">maps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">maps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">maps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span> <span class="n">maps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="c1"># valid ion nums</span>
+        <span class="n">non_fg_num</span> <span class="o">=</span> <span class="n">maps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span>
+        <span class="n">valid_ion_nums</span> <span class="o">=</span> <span class="n">non_fg_num</span> <span class="o">+</span> <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;fg_num&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">valid_ion_nums</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">valid_ion_nums</span><span class="p">,</span> <span class="n">locus_num</span><span class="p">))</span><span class="o">.</span><span class="n">long</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">gpu_id</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="c1"># with torch.cuda.amp.autocast():</span>
+            <span class="n">feature</span><span class="p">,</span> <span class="n">pred</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">maps</span><span class="p">,</span> <span class="n">valid_ion_nums</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>  <span class="c1"># for profile</span>
+
+        <span class="n">pred</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">pred</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">pred</span> <span class="o">=</span> <span class="n">pred</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">df_batch</span><span class="p">),</span> <span class="n">locus_num</span><span class="p">)</span>
+        <span class="n">pred_v</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pred</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">return_feature</span><span class="p">:</span>
+            <span class="n">feature</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">df_batch</span><span class="p">),</span> <span class="n">locus_num</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">feature</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
+            <span class="n">feature</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+            <span class="n">feature_v</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">feature</span><span class="p">)</span>
+
+    <span class="n">pred</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">(</span><span class="n">pred_v</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>  <span class="c1"># torch autocast to 16</span>
+    <span class="n">feature</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">(</span><span class="n">feature_v</span><span class="p">)</span> <span class="k">if</span> <span class="n">return_feature</span> <span class="k">else</span> <span class="kc">None</span>
+
+    <span class="k">return</span> <span class="n">pred</span><span class="p">,</span> <span class="n">feature</span></div>
+
+
+
+<div class="viewcode-block" id="extract_scoring_big">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.deepmap.extract_scoring_big">[docs]</a>
+<span class="nd">@profile</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_scoring_big</span><span class="p">(</span>
+    <span class="n">model_center</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">model_big</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">df_input</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">map_gpu_ms1</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">map_gpu_ms2</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">cycle_num</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">map_im_gap</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">map_im_dim</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">ppm_tolerance</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">im_tolerance</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Extrac and scoring Maps using DeepProfile-14 and DeepProfile-56.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    model_center : torch.nn.Module</span>
+<span class="sd">        The DeepProfile-14 model.</span>
+
+<span class="sd">    model_big : torch.nn.Module</span>
+<span class="sd">        The DeepProfile-56 model.</span>
+
+<span class="sd">    df_input : pd.DataFrame</span>
+<span class="sd">        Provide the pr info.</span>
+
+<span class="sd">    map_gpu_ms1 : dict</span>
+<span class="sd">        Provide the MS1 data.</span>
+
+<span class="sd">    map_gpu_ms2 : dict</span>
+<span class="sd">        Provide the MS2 data.</span>
+
+<span class="sd">    cycle_num : int</span>
+<span class="sd">        How many cycle to extract for a pr. Default 13.</span>
+
+<span class="sd">    map_im_gap : float</span>
+<span class="sd">        The bin width of im in a map.</span>
+
+<span class="sd">    map_im_dim : float</span>
+<span class="sd">        The dimension of im in a map.</span>
+
+<span class="sd">    ppm_tolerance : float</span>
+<span class="sd">        The ppm tolerance.</span>
+
+<span class="sd">    im_tolerance : float</span>
+<span class="sd">        The mobility tolerance.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        pred_v : list[np.ndarray]</span>
+<span class="sd">            The deep scores for [14-left, 14-center, 14-1H, 14-2H, 56-total]</span>
+
+<span class="sd">        feature_v : list[np.ndarray]</span>
+<span class="sd">            The deep features for [14-left, 14-center, 14-1H, 14-2H, 56-total]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># locus</span>
+    <span class="n">locus_v</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="s2">&quot;locus&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+    <span class="c1"># cycle start and end</span>
+    <span class="n">cycle_total</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_rts&quot;</span><span class="p">])</span>
+    <span class="n">idx_start_v</span> <span class="o">=</span> <span class="n">locus_v</span> <span class="o">-</span> <span class="nb">int</span><span class="p">((</span><span class="n">cycle_num</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">idx_start_v</span><span class="p">[</span><span class="n">idx_start_v</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">idx_start_max</span> <span class="o">=</span> <span class="n">cycle_total</span> <span class="o">-</span> <span class="n">cycle_num</span>
+    <span class="n">idx_start_v</span><span class="p">[</span><span class="n">idx_start_v</span> <span class="o">&gt;</span> <span class="n">idx_start_max</span><span class="p">]</span> <span class="o">=</span> <span class="n">idx_start_max</span>
+
+    <span class="c1"># params</span>
+    <span class="n">ms1_cols</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">&quot;pr_mz_left&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;pr_mz&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;pr_mz_1H&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;pr_mz_2H&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;pr_mz_left&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;pr_mz&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;pr_mz_1H&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;pr_mz_2H&quot;</span><span class="p">,</span>
+    <span class="p">]</span>  <span class="c1"># unfrag</span>
+    <span class="n">ms1</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="n">ms1_cols</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">cols_left</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_left_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+    <span class="n">left</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="n">cols_left</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">cols_center</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+    <span class="n">center</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="n">cols_center</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">cols_1H</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_1H_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+    <span class="n">fg_1H</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="n">cols_1H</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">cols_2H</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_2H_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+    <span class="n">fg_2H</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="n">cols_2H</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">ms1</span><span class="p">,</span> <span class="n">left</span><span class="p">,</span> <span class="n">center</span><span class="p">,</span> <span class="n">fg_1H</span><span class="p">,</span> <span class="n">fg_2H</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">ms1_ion_num</span> <span class="o">=</span> <span class="mi">4</span>
+
+    <span class="n">query_im_v</span> <span class="o">=</span> <span class="n">df_input</span><span class="p">[</span><span class="s2">&quot;measure_im&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+    <span class="c1"># cuda input</span>
+    <span class="n">idx_start_v</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">idx_start_v</span><span class="p">)</span>
+    <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">query_mz_m</span><span class="p">)</span>
+    <span class="n">query_im_v</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">query_im_v</span><span class="p">)</span>
+
+    <span class="c1"># cuda output</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_input</span><span class="p">)</span>
+    <span class="n">ions_num</span> <span class="o">=</span> <span class="n">query_mz_m</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">maps</span> <span class="o">=</span> <span class="n">create_cuda_zeros</span><span class="p">((</span><span class="n">n</span><span class="p">,</span> <span class="n">ions_num</span><span class="p">,</span> <span class="n">cycle_num</span><span class="p">,</span> <span class="n">map_im_dim</span><span class="p">))</span>
+
+    <span class="c1"># kernel func, each thread for a elution groups of a pr</span>
+    <span class="n">thread_num</span> <span class="o">=</span> <span class="n">n</span> <span class="o">*</span> <span class="n">ions_num</span>
+    <span class="n">threads_per_block</span> <span class="o">=</span> <span class="mi">256</span>
+    <span class="n">blocks_per_grid</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">thread_num</span> <span class="o">/</span> <span class="n">threads_per_block</span><span class="p">)</span>
+    <span class="n">gpu_bin_map</span><span class="p">[</span><span class="n">blocks_per_grid</span><span class="p">,</span> <span class="n">threads_per_block</span><span class="p">](</span>
+        <span class="n">thread_num</span><span class="p">,</span>
+        <span class="n">cycle_num</span><span class="p">,</span>
+        <span class="n">idx_start_v</span><span class="p">,</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_seek_idx&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_im&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_mz&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_height&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_seek_idx&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_im&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_mz&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_height&quot;</span><span class="p">],</span>
+        <span class="n">query_mz_m</span><span class="p">,</span>
+        <span class="n">ppm_tolerance</span><span class="p">,</span>
+        <span class="n">query_im_v</span><span class="p">,</span>
+        <span class="n">im_tolerance</span><span class="p">,</span>
+        <span class="n">map_im_gap</span><span class="p">,</span>
+        <span class="n">maps</span><span class="p">,</span>
+        <span class="n">ms1_ion_num</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+
+    <span class="c1"># -1H, center, +H, +2H, total</span>
+    <span class="n">maps</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">convert_numba_to_tensor</span><span class="p">(</span><span class="n">maps</span><span class="p">)</span>
+
+    <span class="n">pred_v</span><span class="p">,</span> <span class="n">feature_v</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">5</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">!=</span> <span class="mi">4</span><span class="p">:</span>
+            <span class="n">idx</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">4</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">8</span> <span class="o">+</span> <span class="n">i</span> <span class="o">*</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">20</span> <span class="o">+</span> <span class="n">i</span> <span class="o">*</span> <span class="mi">12</span><span class="p">))</span>
+            <span class="n">valid_ion_nums</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">+</span> <span class="n">df_input</span><span class="p">[</span><span class="s2">&quot;fg_num&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+            <span class="n">model</span> <span class="o">=</span> <span class="n">model_center</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">idx</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">56</span><span class="p">))</span>
+            <span class="n">valid_ion_nums</span> <span class="o">=</span> <span class="mi">4</span> <span class="o">*</span> <span class="p">(</span><span class="mi">2</span> <span class="o">+</span> <span class="n">df_input</span><span class="p">[</span><span class="s2">&quot;fg_num&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+            <span class="n">model</span> <span class="o">=</span> <span class="n">model_big</span>
+        <span class="n">maps_sub</span> <span class="o">=</span> <span class="n">maps</span><span class="p">[:,</span> <span class="n">idx</span><span class="p">]</span>
+        <span class="n">valid_ion_nums</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">valid_ion_nums</span><span class="p">)</span><span class="o">.</span><span class="n">long</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">gpu_id</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="c1"># with torch.cuda.amp.autocast():</span>
+            <span class="n">feature</span><span class="p">,</span> <span class="n">pred</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">maps_sub</span><span class="p">,</span> <span class="n">valid_ion_nums</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+        <span class="n">pred</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">pred</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">pred</span> <span class="o">=</span> <span class="n">pred</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">feature</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+        <span class="n">pred_v</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pred</span><span class="p">)</span>
+        <span class="n">feature_v</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">feature</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">pred_v</span><span class="p">,</span> <span class="n">feature_v</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">fulldia</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../developer_guide.html">Developer guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../contributing.html">Contributing to full_dia</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, sj.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

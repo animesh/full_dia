@@ -1,0 +1,1107 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>full_dia.fxic &#8212; fulldia 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=01f34227"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for full_dia.fxic</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numba</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">full_dia</span><span class="w"> </span><span class="kn">import</span> <span class="n">cfg</span><span class="p">,</span> <span class="n">utils</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">full_dia.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">Logger</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">_</span> <span class="o">=</span> <span class="n">profile</span>
+<span class="k">except</span> <span class="ne">NameError</span><span class="p">:</span>
+
+<div class="viewcode-block" id="profile">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.profile">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">func</span></div>
+
+
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">Logger</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+
+
+<div class="viewcode-block" id="gpu_cal_sa">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.gpu_cal_sa">[docs]</a>
+<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">gpu_cal_sa</span><span class="p">(</span><span class="n">v</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the sa between V and Gaussian Vector: [0.0044, 0.054, 0.242, 0.399, 0.242, 0.054, 0.0044]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">e</span> <span class="o">=</span> <span class="mf">0.000001</span>
+    <span class="n">norm_x</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span>
+            <span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span>
+            <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span>
+            <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span>
+            <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span>
+            <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span>
+            <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span>
+            <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span>
+        <span class="p">)</span>
+        <span class="o">+</span> <span class="n">e</span>
+    <span class="p">)</span>
+
+    <span class="c1"># y = np.array([0.0044, 0.054, 0.242, 0.399, 0.242, 0.054, 0.0044])</span>
+    <span class="n">norm_y</span> <span class="o">=</span> <span class="mf">0.531225</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="mf">0.0044</span>
+        <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="mf">0.054</span>
+        <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">*</span> <span class="mf">0.242</span>
+        <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">*</span> <span class="mf">0.399</span>
+        <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">*</span> <span class="mf">0.242</span>
+        <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="o">*</span> <span class="mf">0.054</span>
+        <span class="o">+</span> <span class="n">v</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span> <span class="o">*</span> <span class="mf">0.0044</span>
+    <span class="p">)</span>
+
+    <span class="n">sa</span> <span class="o">=</span> <span class="n">s</span> <span class="o">/</span> <span class="p">(</span><span class="n">norm_x</span> <span class="o">*</span> <span class="n">norm_y</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">sa</span> <span class="o">&gt;</span> <span class="mf">1.0</span><span class="p">:</span>
+        <span class="n">sa</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="k">return</span> <span class="n">sa</span></div>
+
+
+
+<div class="viewcode-block" id="gpu_sa_gausion_core">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.gpu_sa_gausion_core">[docs]</a>
+<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">gpu_sa_gausion_core</span><span class="p">(</span><span class="n">block_num</span><span class="p">,</span> <span class="n">xics</span><span class="p">,</span> <span class="n">scores</span><span class="p">,</span> <span class="n">window_points</span><span class="p">,</span> <span class="n">valids_num</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Using share-memory to calculate the sa for each locus</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Each block calculates a profile</span>
+    <span class="n">tx</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">threadIdx</span><span class="o">.</span><span class="n">x</span>
+    <span class="n">bx</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockIdx</span><span class="o">.</span><span class="n">x</span>
+    <span class="n">blockdim</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockDim</span><span class="o">.</span><span class="n">x</span>
+    <span class="k">if</span> <span class="n">bx</span> <span class="o">&gt;=</span> <span class="n">block_num</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="n">ions_num</span> <span class="o">=</span> <span class="n">xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">point_num</span> <span class="o">=</span> <span class="n">xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+    <span class="n">k</span> <span class="o">=</span> <span class="n">bx</span> <span class="o">//</span> <span class="n">ions_num</span>
+    <span class="n">xic_idx</span> <span class="o">=</span> <span class="n">bx</span> <span class="o">%</span> <span class="n">ions_num</span>
+
+    <span class="c1"># less valid num</span>
+    <span class="n">valid_num</span> <span class="o">=</span> <span class="n">valids_num</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">xic_idx</span> <span class="o">&gt;</span> <span class="n">valid_num</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="n">x</span> <span class="o">=</span> <span class="n">xics</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">]</span>
+    <span class="n">half</span> <span class="o">=</span> <span class="n">window_points</span> <span class="o">//</span> <span class="mi">2</span>
+
+    <span class="c1"># copy to share memory</span>
+    <span class="c1"># 1h~2000 points，3h~6000 points</span>
+    <span class="k">if</span> <span class="n">xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">500</span><span class="p">:</span>
+        <span class="n">share_xic</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">shared</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mi">500</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numba</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">1500</span><span class="p">:</span>
+        <span class="n">share_xic</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">shared</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mi">1500</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numba</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">share_xic</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">shared</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mi">5500</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numba</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="c1"># pad for start and end</span>
+    <span class="k">if</span> <span class="n">tx</span> <span class="o">==</span> <span class="p">(</span><span class="n">blockdim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+        <span class="n">share_xic</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">elif</span> <span class="n">tx</span> <span class="o">==</span> <span class="p">(</span><span class="n">blockdim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">):</span>
+        <span class="n">share_xic</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">elif</span> <span class="n">tx</span> <span class="o">==</span> <span class="p">(</span><span class="n">blockdim</span> <span class="o">-</span> <span class="mi">3</span><span class="p">):</span>
+        <span class="n">share_xic</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">elif</span> <span class="n">tx</span> <span class="o">==</span> <span class="p">(</span><span class="n">blockdim</span> <span class="o">-</span> <span class="mi">4</span><span class="p">):</span>
+        <span class="n">share_xic</span><span class="p">[</span><span class="n">half</span> <span class="o">+</span> <span class="n">point_num</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">elif</span> <span class="n">tx</span> <span class="o">==</span> <span class="p">(</span><span class="n">blockdim</span> <span class="o">-</span> <span class="mi">5</span><span class="p">):</span>
+        <span class="n">share_xic</span><span class="p">[</span><span class="n">half</span> <span class="o">+</span> <span class="n">point_num</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">elif</span> <span class="n">tx</span> <span class="o">==</span> <span class="p">(</span><span class="n">blockdim</span> <span class="o">-</span> <span class="mi">6</span><span class="p">):</span>
+        <span class="n">share_xic</span><span class="p">[</span><span class="n">half</span> <span class="o">+</span> <span class="n">point_num</span> <span class="o">+</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+    <span class="n">mean_cols</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">point_num</span> <span class="o">/</span> <span class="n">blockdim</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">mean_cols</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>  <span class="c1"># less 32</span>
+        <span class="k">if</span> <span class="n">tx</span> <span class="o">&lt;</span> <span class="n">point_num</span><span class="p">:</span>
+            <span class="n">share_xic</span><span class="p">[</span><span class="n">half</span> <span class="o">+</span> <span class="n">tx</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="n">tx</span><span class="p">]</span>
+        <span class="n">cuda</span><span class="o">.</span><span class="n">syncthreads</span><span class="p">()</span>
+        <span class="c1"># score</span>
+        <span class="k">if</span> <span class="n">tx</span> <span class="o">&lt;</span> <span class="n">point_num</span><span class="p">:</span>
+            <span class="n">v</span> <span class="o">=</span> <span class="n">share_xic</span><span class="p">[</span><span class="n">tx</span> <span class="p">:</span> <span class="p">(</span><span class="n">tx</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">+</span> <span class="n">half</span> <span class="o">+</span> <span class="n">half</span><span class="p">)]</span>
+            <span class="n">score</span> <span class="o">=</span> <span class="n">gpu_cal_sa</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+            <span class="n">scores</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">,</span> <span class="n">tx</span><span class="p">]</span> <span class="o">=</span> <span class="n">score</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">rest_cols</span> <span class="o">=</span> <span class="n">point_num</span> <span class="o">-</span> <span class="n">mean_cols</span> <span class="o">*</span> <span class="n">blockdim</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">mean_cols</span><span class="p">):</span>  <span class="c1"># together</span>
+            <span class="n">share_xic</span><span class="p">[</span><span class="n">half</span> <span class="o">+</span> <span class="n">tx</span> <span class="o">*</span> <span class="n">mean_cols</span> <span class="o">+</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="n">tx</span> <span class="o">*</span> <span class="n">mean_cols</span> <span class="o">+</span> <span class="n">i</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">tx</span> <span class="o">&lt;</span> <span class="n">rest_cols</span><span class="p">:</span>  <span class="c1"># wind up</span>
+            <span class="n">share_xic</span><span class="p">[</span><span class="n">half</span> <span class="o">+</span> <span class="n">blockdim</span> <span class="o">*</span> <span class="n">mean_cols</span> <span class="o">+</span> <span class="n">tx</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="n">blockdim</span> <span class="o">*</span> <span class="n">mean_cols</span> <span class="o">+</span> <span class="n">tx</span><span class="p">]</span>
+        <span class="n">cuda</span><span class="o">.</span><span class="n">syncthreads</span><span class="p">()</span>
+
+        <span class="c1"># score</span>
+        <span class="c1"># together，each thread processes mean_cols</span>
+        <span class="n">xx</span> <span class="o">=</span> <span class="n">share_xic</span><span class="p">[(</span><span class="n">tx</span> <span class="o">*</span> <span class="n">mean_cols</span><span class="p">)</span> <span class="p">:</span> <span class="p">((</span><span class="n">tx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">mean_cols</span> <span class="o">+</span> <span class="n">half</span> <span class="o">+</span> <span class="n">half</span><span class="p">)]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">half</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">xx</span><span class="p">)</span> <span class="o">-</span> <span class="n">half</span><span class="p">):</span>
+            <span class="n">v</span> <span class="o">=</span> <span class="n">xx</span><span class="p">[(</span><span class="n">i</span> <span class="o">-</span> <span class="n">half</span><span class="p">)</span> <span class="p">:</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="n">half</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)]</span>
+            <span class="n">score</span> <span class="o">=</span> <span class="n">gpu_cal_sa</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+            <span class="n">scores</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">,</span> <span class="n">i</span> <span class="o">-</span> <span class="n">half</span> <span class="o">+</span> <span class="n">tx</span> <span class="o">*</span> <span class="n">mean_cols</span><span class="p">]</span> <span class="o">=</span> <span class="n">score</span>
+        <span class="c1"># wind up</span>
+        <span class="k">if</span> <span class="n">tx</span> <span class="o">&lt;</span> <span class="n">rest_cols</span><span class="p">:</span>
+            <span class="n">v</span> <span class="o">=</span> <span class="n">share_xic</span><span class="p">[</span>
+                <span class="p">(</span><span class="n">blockdim</span> <span class="o">*</span> <span class="n">mean_cols</span> <span class="o">+</span> <span class="n">tx</span><span class="p">)</span> <span class="p">:</span> <span class="p">(</span>
+                    <span class="n">blockdim</span> <span class="o">*</span> <span class="n">mean_cols</span> <span class="o">+</span> <span class="n">tx</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">+</span> <span class="n">half</span> <span class="o">+</span> <span class="n">half</span>
+                <span class="p">)</span>
+            <span class="p">]</span>
+            <span class="n">score</span> <span class="o">=</span> <span class="n">gpu_cal_sa</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+            <span class="n">scores</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">,</span> <span class="n">blockdim</span> <span class="o">*</span> <span class="n">mean_cols</span> <span class="o">+</span> <span class="n">tx</span><span class="p">]</span> <span class="o">=</span> <span class="n">score</span></div>
+
+
+
+<div class="viewcode-block" id="cal_coelution_by_gaussion">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.cal_coelution_by_gaussion">[docs]</a>
+<span class="nd">@profile</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">cal_coelution_by_gaussion</span><span class="p">(</span><span class="n">xics</span><span class="p">,</span> <span class="n">window_points</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">valids_num</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Coelution sa scores by sliding windows methods.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    xics : numba.cuda.devicearray.DeviceNDArray</span>
+<span class="sd">        The extracted xics on GPU device.</span>
+
+<span class="sd">    window_points : int</span>
+<span class="sd">        Fixed to 7 cycles when computing the SA scores.</span>
+
+<span class="sd">    valids_num : int</span>
+<span class="sd">        The number of fragment ions + 2 (pr and unfragmented pr)</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        scores : torch.Tensor</span>
+<span class="sd">            The mean SA coelution scores for peak groups.</span>
+<span class="sd">        scores_raw : torch.Tensor</span>
+<span class="sd">            The raw SA coelution scores for peak groups.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">valids_num</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">valids_num</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">gpu_id</span><span class="p">)</span>
+
+    <span class="c1"># block -- profile</span>
+    <span class="n">block_num</span> <span class="o">=</span> <span class="n">xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">create_cuda_zeros</span><span class="p">(</span><span class="n">xics</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+    <span class="n">threads_per_block</span> <span class="o">=</span> <span class="mi">32</span>
+    <span class="n">gpu_sa_gausion_core</span><span class="p">[</span><span class="n">block_num</span><span class="p">,</span> <span class="n">threads_per_block</span><span class="p">](</span>
+        <span class="n">block_num</span><span class="p">,</span> <span class="n">xics</span><span class="p">,</span> <span class="n">scores</span><span class="p">,</span> <span class="n">window_points</span><span class="p">,</span> <span class="n">valids_num</span>
+    <span class="p">)</span>
+    <span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+
+    <span class="n">scores</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">convert_numba_to_tensor</span><span class="p">(</span><span class="n">scores</span><span class="p">)</span>
+
+    <span class="n">scores_raw</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">acos</span><span class="p">(</span><span class="n">scores</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span>  <span class="c1"># [k, f, n]</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">scores_raw</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="n">scores</span> <span class="o">/</span> <span class="n">valids_num</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+    <span class="c1"># ends</span>
+    <span class="n">scores</span><span class="p">[:,</span> <span class="p">:</span><span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">scores</span><span class="p">[:,</span> <span class="o">-</span><span class="mi">3</span><span class="p">:]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">scores_raw</span><span class="p">[:,</span> <span class="p">:,</span> <span class="p">:</span><span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">scores_raw</span><span class="p">[:,</span> <span class="p">:,</span> <span class="o">-</span><span class="mi">3</span><span class="p">:]</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+    <span class="k">return</span> <span class="n">scores</span><span class="p">,</span> <span class="n">scores_raw</span></div>
+
+
+
+<span class="c1"># @profile</span>
+<div class="viewcode-block" id="gpu_simple_smooth">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.gpu_simple_smooth">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">gpu_simple_smooth</span><span class="p">(</span><span class="n">input_xics</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Smooth the xics (n_pep * n_ion * n_cycle) extracted from raw MS data.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="n">input_xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">input_xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">result_xics</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">create_cuda_zeros</span><span class="p">(</span><span class="n">input_xics</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+    <span class="n">threads_per_block</span> <span class="o">=</span> <span class="mi">32</span>  <span class="c1"># block -- profile</span>
+    <span class="n">blocks_per_grid</span> <span class="o">=</span> <span class="n">n</span>
+    <span class="n">gpu_simple_smooth_core</span><span class="p">[</span><span class="n">blocks_per_grid</span><span class="p">,</span> <span class="n">threads_per_block</span><span class="p">](</span>
+        <span class="n">n</span><span class="p">,</span> <span class="n">input_xics</span><span class="p">,</span> <span class="n">result_xics</span>
+    <span class="p">)</span>
+    <span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">result_xics</span></div>
+
+
+
+<div class="viewcode-block" id="gpu_simple_smooth_core">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.gpu_simple_smooth_core">[docs]</a>
+<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">gpu_simple_smooth_core</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">input_xics</span><span class="p">,</span> <span class="n">output</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The core of gpu_simple_smooth using a weighted mean method.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># block -- profile</span>
+    <span class="n">tx</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">threadIdx</span><span class="o">.</span><span class="n">x</span>
+    <span class="n">bx</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockIdx</span><span class="o">.</span><span class="n">x</span>
+
+    <span class="c1"># input</span>
+    <span class="n">ions_num</span> <span class="o">=</span> <span class="n">input_xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">k</span> <span class="o">=</span> <span class="n">bx</span> <span class="o">//</span> <span class="n">ions_num</span>
+    <span class="n">xic_idx</span> <span class="o">=</span> <span class="n">bx</span> <span class="o">%</span> <span class="n">ions_num</span>
+    <span class="n">input_xic</span> <span class="o">=</span> <span class="n">input_xics</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">]</span>
+
+    <span class="c1"># no share-memory, directly in global memory</span>
+    <span class="c1"># [0, n-2] --&gt; mean_cols; n-1 --&gt; rest_cols</span>
+    <span class="n">blockdim</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockDim</span><span class="o">.</span><span class="n">x</span>
+    <span class="n">mean_cols</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">input_xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">/</span> <span class="n">blockdim</span><span class="p">)</span>
+    <span class="n">rest_cols</span> <span class="o">=</span> <span class="n">input_xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">-</span> <span class="n">mean_cols</span> <span class="o">*</span> <span class="p">(</span><span class="n">blockdim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">tx</span> <span class="o">&lt;</span> <span class="n">blockdim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">mean_cols</span><span class="p">):</span>
+            <span class="n">idx</span> <span class="o">=</span> <span class="n">tx</span> <span class="o">*</span> <span class="n">mean_cols</span> <span class="o">+</span> <span class="n">i</span>
+            <span class="k">if</span> <span class="n">idx</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">output</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">,</span> <span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="mf">0.667</span> <span class="o">*</span> <span class="n">input_xic</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">+</span> <span class="mf">0.333</span> <span class="o">*</span> <span class="n">input_xic</span><span class="p">[</span><span class="n">idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">output</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">,</span> <span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">input_xic</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">*</span> <span class="mf">0.5</span> <span class="o">+</span> <span class="mf">0.25</span> <span class="o">*</span> <span class="p">(</span>
+                    <span class="n">input_xic</span><span class="p">[</span><span class="n">idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">input_xic</span><span class="p">[</span><span class="n">idx</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span>
+                <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">rest_cols</span><span class="p">):</span>
+            <span class="n">idx</span> <span class="o">=</span> <span class="p">(</span><span class="n">blockdim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">mean_cols</span> <span class="o">+</span> <span class="n">i</span>
+            <span class="k">if</span> <span class="n">idx</span> <span class="o">==</span> <span class="n">input_xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">output</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">,</span> <span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="mf">0.333</span> <span class="o">*</span> <span class="n">input_xic</span><span class="p">[</span><span class="n">idx</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="mf">0.667</span> <span class="o">*</span> <span class="n">input_xic</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">output</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">,</span> <span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">input_xic</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">*</span> <span class="mf">0.5</span> <span class="o">+</span> <span class="mf">0.25</span> <span class="o">*</span> <span class="p">(</span>
+                    <span class="n">input_xic</span><span class="p">[</span><span class="n">idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">input_xic</span><span class="p">[</span><span class="n">idx</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span>
+                <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="find_maximum">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.find_maximum">[docs]</a>
+<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">find_maximum</span><span class="p">(</span>
+    <span class="n">scan_im</span><span class="p">,</span>
+    <span class="n">scan_mz</span><span class="p">,</span>
+    <span class="n">scan_height</span><span class="p">,</span>
+    <span class="n">query_left</span><span class="p">,</span>
+    <span class="n">query_right</span><span class="p">,</span>
+    <span class="n">query_im_left</span><span class="p">,</span>
+    <span class="n">query_im_right</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Find the maximum intensity value with tol for query in centroided data</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">scan_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">scan_mz</span><span class="p">)</span>
+
+    <span class="n">low</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">high</span> <span class="o">=</span> <span class="n">scan_len</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="n">best_j</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">low</span><span class="p">]</span> <span class="o">==</span> <span class="n">query_left</span><span class="p">:</span>
+        <span class="n">best_j</span> <span class="o">=</span> <span class="n">low</span>
+    <span class="k">elif</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">high</span><span class="p">]</span> <span class="o">==</span> <span class="n">query_right</span><span class="p">:</span>
+        <span class="n">best_j</span> <span class="o">=</span> <span class="n">high</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">while</span> <span class="n">high</span> <span class="o">-</span> <span class="n">low</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">mid</span> <span class="o">=</span> <span class="p">(</span><span class="n">low</span> <span class="o">+</span> <span class="n">high</span><span class="p">)</span> <span class="o">//</span> <span class="mi">2</span>
+            <span class="k">if</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">mid</span><span class="p">]</span> <span class="o">==</span> <span class="n">query_left</span><span class="p">:</span>
+                <span class="n">best_j</span> <span class="o">=</span> <span class="n">mid</span>
+                <span class="k">break</span>
+            <span class="k">if</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">mid</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">query_left</span><span class="p">:</span>
+                <span class="n">low</span> <span class="o">=</span> <span class="n">mid</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">high</span> <span class="o">=</span> <span class="n">mid</span>
+        <span class="k">if</span> <span class="n">best_j</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># no match，high-low=1</span>
+            <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">scan_mz</span><span class="p">[</span><span class="n">low</span><span class="p">]</span> <span class="o">-</span> <span class="n">query_left</span><span class="p">)</span> <span class="o">&lt;</span> <span class="nb">abs</span><span class="p">(</span><span class="n">scan_mz</span><span class="p">[</span><span class="n">high</span><span class="p">]</span> <span class="o">-</span> <span class="n">query_left</span><span class="p">):</span>
+                <span class="n">best_j</span> <span class="o">=</span> <span class="n">low</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">best_j</span> <span class="o">=</span> <span class="n">high</span>
+    <span class="c1"># find first match in list!</span>
+    <span class="k">while</span> <span class="n">best_j</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">best_j</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">best_j</span><span class="p">]:</span>
+            <span class="n">best_j</span> <span class="o">=</span> <span class="n">best_j</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">break</span>
+
+    <span class="n">seek_idx</span> <span class="o">=</span> <span class="n">best_j</span>
+
+    <span class="n">best_seek</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+    <span class="n">y_max</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">while</span> <span class="n">seek_idx</span> <span class="o">&lt;</span> <span class="n">scan_len</span><span class="p">:</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">seek_idx</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="n">query_right</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="k">elif</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="n">query_left</span><span class="p">:</span>  <span class="c1"># exist multiple mz values</span>
+            <span class="n">seek_idx</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">continue</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">im</span> <span class="o">=</span> <span class="n">scan_im</span><span class="p">[</span><span class="n">seek_idx</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">query_im_left</span> <span class="o">&lt;</span> <span class="n">im</span> <span class="o">&lt;</span> <span class="n">query_im_right</span><span class="p">:</span>
+                <span class="n">y</span> <span class="o">=</span> <span class="n">scan_height</span><span class="p">[</span><span class="n">seek_idx</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">y</span> <span class="o">&gt;</span> <span class="n">y_max</span><span class="p">:</span>
+                    <span class="n">y_max</span> <span class="o">=</span> <span class="n">y</span>
+                    <span class="n">best_seek</span> <span class="o">=</span> <span class="n">seek_idx</span>
+            <span class="n">seek_idx</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">if</span> <span class="n">best_seek</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">im</span> <span class="o">=</span> <span class="n">scan_im</span><span class="p">[</span><span class="n">best_seek</span><span class="p">]</span>
+        <span class="n">mz</span> <span class="o">=</span> <span class="n">scan_mz</span><span class="p">[</span><span class="n">best_seek</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">im</span> <span class="o">=</span> <span class="o">-</span><span class="mf">1.0</span>
+        <span class="n">mz</span> <span class="o">=</span> <span class="o">-</span><span class="mf">1.0</span>
+    <span class="k">return</span> <span class="n">im</span><span class="p">,</span> <span class="n">mz</span><span class="p">,</span> <span class="n">y_max</span></div>
+
+
+
+<div class="viewcode-block" id="gpu_extract_xics">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.gpu_extract_xics">[docs]</a>
+<span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">gpu_extract_xics</span><span class="p">(</span>
+    <span class="n">n</span><span class="p">,</span>
+    <span class="n">cycle_nums</span><span class="p">,</span>
+    <span class="n">idx_start_v</span><span class="p">,</span>
+    <span class="n">ms1_scan_seek_idx</span><span class="p">,</span>
+    <span class="n">ms1_scan_im</span><span class="p">,</span>
+    <span class="n">ms1_scan_mz</span><span class="p">,</span>
+    <span class="n">ms1_scan_height</span><span class="p">,</span>
+    <span class="n">ms2_scan_seek_idx</span><span class="p">,</span>
+    <span class="n">ms2_scan_im</span><span class="p">,</span>
+    <span class="n">ms2_scan_mz</span><span class="p">,</span>
+    <span class="n">ms2_scan_height</span><span class="p">,</span>
+    <span class="n">query_mz_m</span><span class="p">,</span>
+    <span class="n">ppm_tolerance</span><span class="p">,</span>
+    <span class="n">query_im_v</span><span class="p">,</span>
+    <span class="n">im_tolerance</span><span class="p">,</span>
+    <span class="n">ms1_ion_num</span><span class="p">,</span>
+    <span class="n">result_im</span><span class="p">,</span>
+    <span class="n">result_mz</span><span class="p">,</span>
+    <span class="n">result_xic</span><span class="p">,</span>
+    <span class="n">only_xic</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Extract xics from MS data for target ions.</span>
+<span class="sd">    Each thread works for an ion and make a xic (profile).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># thread -- profile</span>
+    <span class="n">thread_idx</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">threadIdx</span><span class="o">.</span><span class="n">x</span> <span class="o">+</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockDim</span><span class="o">.</span><span class="n">x</span> <span class="o">*</span> <span class="n">cuda</span><span class="o">.</span><span class="n">blockIdx</span><span class="o">.</span><span class="n">x</span>
+    <span class="k">if</span> <span class="n">thread_idx</span> <span class="o">&gt;=</span> <span class="n">n</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="c1"># pr idx, ion idx</span>
+    <span class="n">ions_num</span> <span class="o">=</span> <span class="n">query_mz_m</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">k</span> <span class="o">=</span> <span class="n">thread_idx</span> <span class="o">//</span> <span class="n">ions_num</span>
+    <span class="n">xic_idx</span> <span class="o">=</span> <span class="n">thread_idx</span> <span class="o">%</span> <span class="n">ions_num</span>
+
+    <span class="c1"># params</span>
+    <span class="n">query_mz</span> <span class="o">=</span> <span class="n">query_mz_m</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">]</span>
+    <span class="n">query_mz_left</span> <span class="o">=</span> <span class="n">query_mz</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">ppm_tolerance</span> <span class="o">/</span> <span class="mf">1000000.0</span><span class="p">)</span>
+    <span class="n">query_mz_right</span> <span class="o">=</span> <span class="n">query_mz</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">ppm_tolerance</span> <span class="o">/</span> <span class="mf">1000000.0</span><span class="p">)</span>
+    <span class="n">query_im</span> <span class="o">=</span> <span class="n">query_im_v</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+    <span class="n">query_im_left</span> <span class="o">=</span> <span class="n">query_im</span> <span class="o">-</span> <span class="n">im_tolerance</span>
+    <span class="n">query_im_right</span> <span class="o">=</span> <span class="n">query_im</span> <span class="o">+</span> <span class="n">im_tolerance</span>
+
+    <span class="c1">## both for ms1 and ms2</span>
+    <span class="n">idx_start</span> <span class="o">=</span> <span class="n">idx_start_v</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+    <span class="n">idx_end</span> <span class="o">=</span> <span class="n">idx_start</span> <span class="o">+</span> <span class="n">cycle_nums</span>
+
+    <span class="k">if</span> <span class="n">xic_idx</span> <span class="o">&lt;</span> <span class="n">ms1_ion_num</span><span class="p">:</span>
+        <span class="n">scans_seek_idx</span> <span class="o">=</span> <span class="n">ms1_scan_seek_idx</span>
+        <span class="n">scans_im</span> <span class="o">=</span> <span class="n">ms1_scan_im</span>
+        <span class="n">scans_mz</span> <span class="o">=</span> <span class="n">ms1_scan_mz</span>
+        <span class="n">scans_height</span> <span class="o">=</span> <span class="n">ms1_scan_height</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">scans_seek_idx</span> <span class="o">=</span> <span class="n">ms2_scan_seek_idx</span>
+        <span class="n">scans_im</span> <span class="o">=</span> <span class="n">ms2_scan_im</span>
+        <span class="n">scans_mz</span> <span class="o">=</span> <span class="n">ms2_scan_mz</span>
+        <span class="n">scans_height</span> <span class="o">=</span> <span class="n">ms2_scan_height</span>
+
+    <span class="k">for</span> <span class="n">cycle_idx</span><span class="p">,</span> <span class="n">scan_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">idx_start</span><span class="p">,</span> <span class="n">idx_end</span><span class="p">)):</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="n">scans_seek_idx</span><span class="p">[</span><span class="n">scan_idx</span><span class="p">]</span>
+        <span class="n">end</span> <span class="o">=</span> <span class="n">scans_seek_idx</span><span class="p">[</span><span class="n">scan_idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">scan_im</span> <span class="o">=</span> <span class="n">scans_im</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span>
+        <span class="n">scan_mz</span> <span class="o">=</span> <span class="n">scans_mz</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span>
+        <span class="n">scan_height</span> <span class="o">=</span> <span class="n">scans_height</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span>
+
+        <span class="n">im</span><span class="p">,</span> <span class="n">mz</span><span class="p">,</span> <span class="n">y_max</span> <span class="o">=</span> <span class="n">find_maximum</span><span class="p">(</span>
+            <span class="n">scan_im</span><span class="p">,</span>
+            <span class="n">scan_mz</span><span class="p">,</span>
+            <span class="n">scan_height</span><span class="p">,</span>
+            <span class="n">query_mz_left</span><span class="p">,</span>
+            <span class="n">query_mz_right</span><span class="p">,</span>
+            <span class="n">query_im_left</span><span class="p">,</span>
+            <span class="n">query_im_right</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">only_xic</span><span class="p">:</span>
+            <span class="n">result_im</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">,</span> <span class="n">cycle_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">im</span>
+            <span class="n">result_mz</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">,</span> <span class="n">cycle_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">mz</span>
+        <span class="n">result_xic</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">xic_idx</span><span class="p">,</span> <span class="n">cycle_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">y_max</span></div>
+
+
+
+<div class="viewcode-block" id="extract_xics">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.extract_xics">[docs]</a>
+<span class="nd">@profile</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_xics</span><span class="p">(</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">map_gpu_ms1</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">map_gpu_ms2</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">ppm_tolerance</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">im_tolerance</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">rt_tolerance</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">cycle_num</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;center&quot;</span><span class="p">,</span>
+    <span class="n">only_xic</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">by_pred</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Extrac XICs from centroid ms data.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    df : pd.DataFrame</span>
+<span class="sd">        Provide the info of locus and peptide.</span>
+
+<span class="sd">    map_gpu_ms1 : dict</span>
+<span class="sd">        MS1 data.</span>
+
+<span class="sd">    map_gpu_ms2 : dict</span>
+<span class="sd">        MS2 data.</span>
+
+<span class="sd">    ppm_tolerance : float</span>
+<span class="sd">        The tolerance of ppm.</span>
+
+<span class="sd">    im_tolerance : float</span>
+<span class="sd">        The tolerance of mobility.</span>
+
+<span class="sd">    rt_tolerance : float, default=None</span>
+<span class="sd">        The tolerance of rt. If None, from gradient start to end.</span>
+
+<span class="sd">    cycle_num : int, default=None</span>
+<span class="sd">        The cycle num of xics. If None, from cycle start to end.</span>
+
+<span class="sd">    scope : str, default=&quot;center&quot;</span>
+<span class="sd">        Determine which ions to extract.</span>
+<span class="sd">        &quot;center&quot;: pr, pr_unfrag, fragment ions.</span>
+<span class="sd">        &quot;big&quot;: &quot;center&quot; and the corresponding isotope ions.</span>
+<span class="sd">        &quot;top6&quot;: top-6 fragment ions.</span>
+
+<span class="sd">    only_xic : bool, default=False</span>
+<span class="sd">        Whether return xics with or without im/m/z</span>
+
+<span class="sd">    by_pred: bool, default=True</span>
+<span class="sd">        Use measure_im or pred_im when extracting xics.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        cycles_idx : np.ndarray</span>
+<span class="sd">            Each XIC time point corresponds to a cycle index.</span>
+
+<span class="sd">        rts : np.ndarray</span>
+<span class="sd">            Each XIC signal point corresponds to a retention time.</span>
+
+<span class="sd">        ims : np.ndarray</span>
+<span class="sd">            Each XIC signal point corresponds to a ion mobility.</span>
+
+<span class="sd">        mzs : np.ndarray</span>
+<span class="sd">            Each XIC signal point corresponds to a measured m/z value.</span>
+
+<span class="sd">        xics : numba.cuda.devicearray.DeviceNDArray</span>
+<span class="sd">            The extracted xics on GPU device.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">scan_rts</span> <span class="o">=</span> <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_rts&quot;</span><span class="p">]</span>
+    <span class="n">cycle_total</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">scan_rts</span><span class="p">)</span>
+    <span class="n">biggest_rt</span> <span class="o">=</span> <span class="n">scan_rts</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="c1"># rt_range -- cycle start</span>
+    <span class="n">cycle_time</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">scan_rts</span><span class="p">))</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">rt_tolerance</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">cycle_num</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">):</span>  <span class="c1"># all rt_range</span>
+        <span class="n">idx_start_v</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+        <span class="n">cycle_num</span> <span class="o">=</span> <span class="n">cycle_total</span>
+        <span class="c1"># cycle -- rt</span>
+        <span class="n">result_cycle_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">broadcast_to</span><span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">cycle_total</span><span class="p">),</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">),</span> <span class="n">cycle_total</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">result_rts</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">broadcast_to</span><span class="p">(</span><span class="n">scan_rts</span><span class="p">,</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">),</span> <span class="n">cycle_total</span><span class="p">))</span>
+    <span class="k">elif</span> <span class="n">rt_tolerance</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">cycle_num</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">rt_tolerance</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">/</span> <span class="n">cycle_time</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">cycle_num</span> <span class="o">&gt;</span> <span class="n">cycle_total</span><span class="p">:</span>
+            <span class="n">cycle_num</span> <span class="o">=</span> <span class="n">cycle_total</span>
+        <span class="n">rt_range_low</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;pred_rt&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span> <span class="o">-</span> <span class="n">rt_tolerance</span>
+        <span class="n">idx_start_v</span> <span class="o">=</span> <span class="n">rt_range_low</span> <span class="o">/</span> <span class="n">biggest_rt</span>
+        <span class="n">idx_start_v</span> <span class="o">=</span> <span class="p">(</span><span class="n">idx_start_v</span> <span class="o">*</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">scan_rts</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+        <span class="n">idx_start_v</span><span class="p">[</span><span class="n">idx_start_v</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">idx_start_max</span> <span class="o">=</span> <span class="n">cycle_total</span> <span class="o">-</span> <span class="n">cycle_num</span>
+        <span class="n">idx_start_v</span><span class="p">[</span><span class="n">idx_start_v</span> <span class="o">&gt;</span> <span class="n">idx_start_max</span><span class="p">]</span> <span class="o">=</span> <span class="n">idx_start_max</span>
+        <span class="c1"># cycle -- rt</span>
+        <span class="n">cycle_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">cycle_num</span><span class="p">)</span> <span class="o">+</span> <span class="n">idx_start_v</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span>
+        <span class="n">result_cycle_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">cycle_total</span><span class="p">)[</span><span class="n">cycle_idx</span><span class="p">]</span>
+        <span class="n">result_rts</span> <span class="o">=</span> <span class="n">scan_rts</span><span class="p">[</span><span class="n">cycle_idx</span><span class="p">]</span>
+    <span class="k">elif</span> <span class="n">cycle_num</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">cycle_total</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_rts&quot;</span><span class="p">])</span>
+        <span class="n">idx_start_v</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;locus&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span> <span class="o">-</span> <span class="nb">int</span><span class="p">(</span><span class="n">cycle_num</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">idx_start_v</span><span class="p">[</span><span class="n">idx_start_v</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">idx_start_max</span> <span class="o">=</span> <span class="n">cycle_total</span> <span class="o">-</span> <span class="n">cycle_num</span>
+        <span class="n">idx_start_v</span><span class="p">[</span><span class="n">idx_start_v</span> <span class="o">&gt;</span> <span class="n">idx_start_max</span><span class="p">]</span> <span class="o">=</span> <span class="n">idx_start_max</span>
+        <span class="c1"># cycle -- rt</span>
+        <span class="n">cycle_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">cycle_num</span><span class="p">)</span> <span class="o">+</span> <span class="n">idx_start_v</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span>
+        <span class="n">result_cycle_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">cycle_total</span><span class="p">)[</span><span class="n">cycle_idx</span><span class="p">]</span>
+        <span class="n">result_rts</span> <span class="o">=</span> <span class="n">scan_rts</span><span class="p">[</span><span class="n">cycle_idx</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Set either rt_tolerance or cycle_tolerance for extract_xics.&quot;</span><span class="p">)</span>
+
+    <span class="c1"># params</span>
+    <span class="k">if</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;center&quot;</span><span class="p">:</span>
+        <span class="n">query_mz_ms1</span> <span class="o">=</span> <span class="n">df</span><span class="p">[[</span><span class="s2">&quot;pr_mz&quot;</span><span class="p">,</span> <span class="s2">&quot;pr_mz&quot;</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">fg_mz_cols</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">query_mz_ms2</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">fg_mz_cols</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">query_mz_ms1</span><span class="p">,</span> <span class="n">query_mz_ms2</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">ms1_ion_num</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">elif</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;big&quot;</span><span class="p">:</span>
+        <span class="n">ms1_cols</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s2">&quot;pr_mz_left&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz_1H&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz_2H&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz_left&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz_1H&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;pr_mz_2H&quot;</span><span class="p">,</span>
+        <span class="p">]</span>  <span class="c1"># unfrag</span>
+        <span class="n">ms1</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">ms1_cols</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">cols_left</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_left_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">left</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">cols_left</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">cols_center</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">center</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">cols_center</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">cols_1H</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_1H_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">fg_1H</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">cols_1H</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">cols_2H</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_2H_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">fg_2H</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">cols_2H</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">ms1</span><span class="p">,</span> <span class="n">left</span><span class="p">,</span> <span class="n">center</span><span class="p">,</span> <span class="n">fg_1H</span><span class="p">,</span> <span class="n">fg_2H</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">ms1_ion_num</span> <span class="o">=</span> <span class="mi">4</span>
+    <span class="k">elif</span> <span class="n">scope</span> <span class="o">==</span> <span class="s2">&quot;top6&quot;</span><span class="p">:</span>
+        <span class="n">cols_center</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;fg_mz_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">fg_num</span><span class="p">)]</span>
+        <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="n">cols_center</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[:,</span> <span class="p">:</span><span class="mi">6</span><span class="p">])</span>
+        <span class="n">ms1_ion_num</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="n">query_im_v</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;pred_im&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span> <span class="k">if</span> <span class="n">by_pred</span> <span class="k">else</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;measure_im&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+    <span class="c1"># GPU</span>
+    <span class="n">ions_num</span> <span class="o">=</span> <span class="n">query_mz_m</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">only_xic</span><span class="p">:</span>
+        <span class="n">result_im</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">device_array</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">result_mz</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">device_array</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">result_im</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">device_array</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">),</span> <span class="n">ions_num</span><span class="p">,</span> <span class="n">cycle_num</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">result_mz</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">device_array</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">),</span> <span class="n">ions_num</span><span class="p">,</span> <span class="n">cycle_num</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">result_xic</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">device_array</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">),</span> <span class="n">ions_num</span><span class="p">,</span> <span class="n">cycle_num</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">idx_start_v</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">idx_start_v</span><span class="p">)</span>
+    <span class="n">query_mz_m</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">query_mz_m</span><span class="p">)</span>
+    <span class="n">query_im_v</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">query_im_v</span><span class="p">)</span>
+
+    <span class="c1"># kernel func, each thread is for a profile of an ion</span>
+    <span class="n">k</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="n">k</span> <span class="o">*</span> <span class="n">ions_num</span>
+    <span class="n">threads_per_block</span> <span class="o">=</span> <span class="mi">512</span>
+    <span class="n">blocks_per_grid</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">n</span> <span class="o">/</span> <span class="n">threads_per_block</span><span class="p">)</span>
+    <span class="n">gpu_extract_xics</span><span class="p">[</span><span class="n">blocks_per_grid</span><span class="p">,</span> <span class="n">threads_per_block</span><span class="p">](</span>
+        <span class="n">n</span><span class="p">,</span>
+        <span class="n">cycle_num</span><span class="p">,</span>
+        <span class="n">idx_start_v</span><span class="p">,</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_seek_idx&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_im&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_mz&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms1</span><span class="p">[</span><span class="s2">&quot;scan_height&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_seek_idx&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_im&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_mz&quot;</span><span class="p">],</span>
+        <span class="n">map_gpu_ms2</span><span class="p">[</span><span class="s2">&quot;scan_height&quot;</span><span class="p">],</span>
+        <span class="n">query_mz_m</span><span class="p">,</span>
+        <span class="n">ppm_tolerance</span><span class="p">,</span>
+        <span class="n">query_im_v</span><span class="p">,</span>
+        <span class="n">im_tolerance</span><span class="p">,</span>
+        <span class="n">ms1_ion_num</span><span class="p">,</span>
+        <span class="n">result_im</span><span class="p">,</span>
+        <span class="n">result_mz</span><span class="p">,</span>
+        <span class="n">result_xic</span><span class="p">,</span>
+        <span class="n">only_xic</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">only_xic</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">result_cycle_idx</span><span class="p">,</span> <span class="n">result_rts</span><span class="p">,</span> <span class="n">result_xic</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">scope</span> <span class="o">!=</span> <span class="s2">&quot;big&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="n">result_cycle_idx</span><span class="p">,</span>
+                <span class="n">result_rts</span><span class="p">,</span>
+                <span class="n">result_im</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">(),</span>
+                <span class="n">result_mz</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">(),</span>
+                <span class="n">result_xic</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>  <span class="c1"># order on [left, center, 1H, 2H]</span>
+            <span class="n">result_im</span> <span class="o">=</span> <span class="n">result_im</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">()</span>
+            <span class="n">result_mz</span> <span class="o">=</span> <span class="n">result_mz</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">()</span>
+            <span class="n">result_xic</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">convert_numba_to_tensor</span><span class="p">(</span><span class="n">result_xic</span><span class="p">)</span>
+            <span class="n">ims_v</span><span class="p">,</span> <span class="n">mzs_v</span><span class="p">,</span> <span class="n">xics_v</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">):</span>
+                <span class="n">idx</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">4</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">8</span> <span class="o">+</span> <span class="n">i</span> <span class="o">*</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">20</span> <span class="o">+</span> <span class="n">i</span> <span class="o">*</span> <span class="mi">12</span><span class="p">))</span>
+                <span class="n">ims_v</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">result_im</span><span class="p">[:,</span> <span class="n">idx</span><span class="p">])</span>
+                <span class="n">mzs_v</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">result_mz</span><span class="p">[:,</span> <span class="n">idx</span><span class="p">])</span>
+                <span class="n">xics_v</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">result_xic</span><span class="p">[:,</span> <span class="n">idx</span><span class="p">])</span>
+            <span class="k">return</span> <span class="p">(</span><span class="n">result_cycle_idx</span><span class="p">,</span> <span class="n">result_rts</span><span class="p">,</span> <span class="n">ims_v</span><span class="p">,</span> <span class="n">mzs_v</span><span class="p">,</span> <span class="n">xics_v</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="cal_measure_im">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.cal_measure_im">[docs]</a>
+<span class="nd">@profile</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">cal_measure_im</span><span class="p">(</span>
+    <span class="n">locus_ims</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">locus_sas</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">good_cut</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the measure_im for each locus, weighting with the sa values.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    locus_ims : np.ndarray</span>
+<span class="sd">        Ion mobility values for locus. Dimension: [n_locus, n_ion]</span>
+
+<span class="sd">    locus_sas: np.ndarray</span>
+<span class="sd">        SA scores for locus. Dimension: [n_locus, n_ion]</span>
+
+<span class="sd">    good_cut : float, default=0.5</span>
+<span class="sd">        Only considering the ion with good_cut threshold</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    locus_im : np.ndarray</span>
+<span class="sd">        The weighted mean ion mobility values. Dimension: [n_locus]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">condition1</span> <span class="o">=</span> <span class="n">locus_ims</span> <span class="o">&lt;=</span> <span class="mf">0.0</span>
+    <span class="n">condition2</span> <span class="o">=</span> <span class="n">locus_sas</span> <span class="o">&lt;</span> <span class="n">locus_sas</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">*</span> <span class="n">good_cut</span>
+    <span class="n">bad_idx</span> <span class="o">=</span> <span class="n">condition1</span> <span class="o">|</span> <span class="n">condition2</span>
+
+    <span class="n">locus_ims</span><span class="p">[</span><span class="n">bad_idx</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">locus_sas</span><span class="p">[</span><span class="n">bad_idx</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+    <span class="n">locus_sas</span> <span class="o">+=</span> <span class="mf">1e-7</span>
+    <span class="n">locus_im</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">average</span><span class="p">(</span><span class="n">locus_ims</span><span class="p">,</span> <span class="n">weights</span><span class="o">=</span><span class="n">locus_sas</span><span class="p">,</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="c1"># assert locus_im.min() &gt; 0.2</span>
+    <span class="c1"># assert locus_im.max() &lt; 2.</span>
+
+    <span class="k">return</span> <span class="n">locus_im</span></div>
+
+
+
+<div class="viewcode-block" id="reserve_sa_maximum">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.reserve_sa_maximum">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">reserve_sa_maximum</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    If x &gt; x-1 and x &gt; x+1, x is local maximum will be saved. If not, assign 0</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    x : torch.Tensor</span>
+<span class="sd">        SA raw values with dimension: [n_pep, n_cycle]</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    x : torch.Tensor</span>
+<span class="sd">        SA values after suppression with dimension: [n_pep, n_cycle]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">x_pad</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+    <span class="n">idx</span> <span class="o">=</span> <span class="p">(</span><span class="n">x_pad</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">x_pad</span><span class="p">[:,</span> <span class="mi">2</span><span class="p">:])</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">x_pad</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">x_pad</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">:</span><span class="o">-</span><span class="mi">2</span><span class="p">])</span>
+    <span class="n">x</span><span class="p">[</span><span class="o">~</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">return</span> <span class="n">x</span></div>
+
+
+
+<div class="viewcode-block" id="screen_locus_by_sa">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.screen_locus_by_sa">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">screen_locus_by_sa</span><span class="p">(</span><span class="n">scores_sa</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">top_sa_cut</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Screen multi locus of a pr that satisfy: local maximum, quantile1, quantile2</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    scores_sa : np.ndarray</span>
+<span class="sd">        Scores of locus.</span>
+
+<span class="sd">    top_sa_cut : float</span>
+<span class="sd">        Quantile threshold on sa level</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    scores_sa : np.ndarray</span>
+<span class="sd">        Bad points have already assigned zero values.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">median_values</span> <span class="o">=</span> <span class="n">scores_sa</span><span class="o">.</span><span class="n">quantile</span><span class="p">(</span><span class="n">top_sa_cut</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">rowmax_values</span> <span class="o">=</span> <span class="n">scores_sa</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="c1"># local maximum</span>
+    <span class="n">scores_sa</span> <span class="o">=</span> <span class="n">reserve_sa_maximum</span><span class="p">(</span><span class="n">scores_sa</span><span class="p">)</span>
+
+    <span class="c1"># screen</span>
+    <span class="n">condition1</span> <span class="o">=</span> <span class="p">(</span><span class="n">scores_sa</span> <span class="o">/</span> <span class="n">rowmax_values</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">top_sa_cut</span>
+    <span class="n">condition2</span> <span class="o">=</span> <span class="n">scores_sa</span> <span class="o">&lt;</span> <span class="n">median_values</span>
+    <span class="n">bad_idx</span> <span class="o">=</span> <span class="n">condition1</span> <span class="o">|</span> <span class="n">condition2</span>
+    <span class="n">scores_sa</span><span class="p">[</span><span class="n">bad_idx</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+    <span class="k">return</span> <span class="n">scores_sa</span></div>
+
+
+
+<div class="viewcode-block" id="screen_locus_by_deep">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.screen_locus_by_deep">[docs]</a>
+<span class="nd">@profile</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">screen_locus_by_deep</span><span class="p">(</span>
+    <span class="n">df_batch</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">locus_num</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">top_deep_q</span><span class="p">:</span> <span class="nb">float</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Screen locus of a pr by deep scores.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    df_batch : pd.DataFrame</span>
+<span class="sd">        Provide columns: &quot;pr_id&quot;, &quot;seek_score_deep&quot;, &quot;seek_score_sa_x_deep&quot;</span>
+<span class="sd">        n_pep * n_locus rows</span>
+
+<span class="sd">    top_deep_q : float</span>
+<span class="sd">        Threshold for deep_x / deep_max</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    df_batch : pd.DataFrame</span>
+<span class="sd">        Less rows after screen.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">group_size_cumsum</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([[</span><span class="mi">0</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">locus_num</span><span class="p">)])</span>
+    <span class="n">group_rank_deep</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">cal_group_rank</span><span class="p">(</span>
+        <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;seek_score_deep&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span> <span class="n">group_size_cumsum</span>
+    <span class="p">)</span>
+    <span class="n">group_rank_x</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">cal_group_rank</span><span class="p">(</span>
+        <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;seek_score_sa_x_deep&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span> <span class="n">group_size_cumsum</span>
+    <span class="p">)</span>
+
+    <span class="c1"># screen by top-n</span>
+    <span class="n">condition1</span> <span class="o">=</span> <span class="p">(</span><span class="n">group_rank_deep</span> <span class="o">&lt;=</span> <span class="mi">2</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">group_rank_x</span> <span class="o">&lt;=</span> <span class="mi">2</span><span class="p">)</span>
+
+    <span class="c1"># screen by ratio</span>
+    <span class="n">group_max</span> <span class="o">=</span> <span class="n">df_batch</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">&quot;pr_id&quot;</span><span class="p">)[</span><span class="s2">&quot;seek_score_sa_x_deep&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="s2">&quot;max&quot;</span><span class="p">)</span>
+    <span class="n">ratios</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;seek_score_sa_x_deep&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">group_max</span>
+    <span class="n">condition2</span> <span class="o">=</span> <span class="n">ratios</span> <span class="o">&gt;</span> <span class="n">top_deep_q</span>
+
+    <span class="n">idx</span> <span class="o">=</span> <span class="n">condition1</span> <span class="o">&amp;</span> <span class="n">condition2</span>
+    <span class="n">df_batch</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">df_batch</span></div>
+
+
+
+<div class="viewcode-block" id="concat_nonzero_locus">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.concat_nonzero_locus">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">concat_nonzero_locus</span><span class="p">(</span>
+    <span class="n">locus</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">scores_sa</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">scores_sa_m</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    After screening locus by sa, sa_input has much zero values. Select and</span>
+<span class="sd">    concat the nonzero values to vectors.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    locus : np.ndarray</span>
+<span class="sd">        The locus of extracted xics. Dimension: [n_pep, n_locus]</span>
+
+<span class="sd">    scores_sa : torch.Tensor</span>
+<span class="sd">        The SA locus scores of extracted xics. Dimension: [n_pep, n_locus]</span>
+
+<span class="sd">    scores_sa_m : torch.Tensor</span>
+<span class="sd">        The SA ion scores of extracted xics. Dimension: [n_pep, n_ion, n_locus]</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        locus_v : np.ndarray</span>
+<span class="sd">            The candidate locus after screening in a vector.</span>
+
+<span class="sd">        locus_num : np.ndarray</span>
+<span class="sd">            Indicate how many locus retained after screening for a peptide.</span>
+
+<span class="sd">        locus_sa_v : np.ndarray</span>
+<span class="sd">            The SA locus scores of candidate locus.</span>
+
+<span class="sd">        locus_sas : np.ndarray</span>
+<span class="sd">            The SA ion scores of candidate locus.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">good_idx</span> <span class="o">=</span> <span class="n">scores_sa</span> <span class="o">&gt;</span> <span class="mi">0</span>
+    <span class="n">locus_sa_v</span> <span class="o">=</span> <span class="n">scores_sa</span><span class="p">[</span><span class="n">good_idx</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+    <span class="n">locus_sas</span> <span class="o">=</span> <span class="n">scores_sa_m</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)[</span><span class="n">good_idx</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+
+    <span class="n">good_idx</span> <span class="o">=</span> <span class="n">good_idx</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+    <span class="n">locus_v</span> <span class="o">=</span> <span class="n">locus</span><span class="p">[</span><span class="n">good_idx</span><span class="p">]</span>
+    <span class="n">locus_num</span> <span class="o">=</span> <span class="n">good_idx</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">locus_v</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">locus_sas</span><span class="p">)</span> <span class="o">==</span> <span class="n">locus_num</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="n">locus_v</span><span class="p">,</span> <span class="n">locus_num</span><span class="p">,</span> <span class="n">locus_sa_v</span><span class="p">,</span> <span class="n">locus_sas</span></div>
+
+
+
+<div class="viewcode-block" id="estimate_xic_boundary">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.estimate_xic_boundary">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">estimate_xic_boundary</span><span class="p">(</span><span class="n">xics</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">sa_gausion_m</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Exstimate the boundary of an elution group in cycles.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    xics : torch.Tensor</span>
+<span class="sd">        Dimension: [n_pep, n_ion, 13]</span>
+
+<span class="sd">    sa_gausion_m : torch.Tensor</span>
+<span class="sd">        Dimension: [n_pep, n_ion]</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        left_idx_1d : np.ndarray</span>
+<span class="sd">            The start index for locus.</span>
+
+<span class="sd">        right_idx_1d : np.ndarray</span>
+<span class="sd">            The end index for locus.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">center_idx</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">sa_sum</span> <span class="o">=</span> <span class="n">sa_gausion_m</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="c1"># find valley</span>
+    <span class="n">x_pad</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">xics</span><span class="p">,</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+    <span class="n">left_condition1</span> <span class="o">=</span> <span class="n">x_pad</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">x_pad</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">2</span><span class="p">:]</span>
+    <span class="n">left_condition2</span> <span class="o">=</span> <span class="n">x_pad</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">x_pad</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">0</span><span class="p">:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+
+    <span class="n">right_condition1</span> <span class="o">=</span> <span class="n">x_pad</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">x_pad</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">2</span><span class="p">:]</span>
+    <span class="n">right_condition2</span> <span class="o">=</span> <span class="n">x_pad</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">x_pad</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">0</span><span class="p">:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+
+    <span class="c1"># left</span>
+    <span class="n">condition</span> <span class="o">=</span> <span class="n">left_condition1</span> <span class="o">&amp;</span> <span class="n">left_condition2</span>
+    <span class="n">condition</span> <span class="o">=</span> <span class="n">condition</span><span class="p">[:,</span> <span class="p">:,</span> <span class="p">:</span><span class="n">center_idx</span><span class="p">]</span><span class="o">.</span><span class="n">int</span><span class="p">()</span>
+    <span class="n">condition</span> <span class="o">=</span> <span class="n">condition</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">left_idx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">condition</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>  <span class="c1"># first left valley</span>
+    <span class="n">left_idx</span> <span class="o">=</span> <span class="n">center_idx</span> <span class="o">-</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">left_idx</span>
+
+    <span class="n">no_valley_idx</span> <span class="o">=</span> <span class="n">condition</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
+    <span class="n">left_idx</span><span class="p">[</span><span class="n">no_valley_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">center_idx</span> <span class="o">-</span> <span class="mi">3</span>  <span class="c1"># no valley, set to half of 7</span>
+
+    <span class="n">left_idx</span> <span class="o">=</span> <span class="p">(</span><span class="n">left_idx</span> <span class="o">*</span> <span class="n">sa_gausion_m</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">sa_sum</span> <span class="o">+</span> <span class="mf">1e-7</span><span class="p">)</span>
+    <span class="n">left_idx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">left_idx</span><span class="p">)</span>  <span class="c1"># or ceil</span>
+
+    <span class="c1"># right</span>
+    <span class="n">condition</span> <span class="o">=</span> <span class="n">right_condition1</span> <span class="o">&amp;</span> <span class="n">right_condition2</span>
+    <span class="n">condition</span> <span class="o">=</span> <span class="n">condition</span><span class="p">[:,</span> <span class="p">:,</span> <span class="p">(</span><span class="n">center_idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="p">:]</span><span class="o">.</span><span class="n">int</span><span class="p">()</span>
+    <span class="n">right_idx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">condition</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>  <span class="c1"># first right valley</span>
+    <span class="n">right_idx</span> <span class="o">=</span> <span class="n">center_idx</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">+</span> <span class="n">right_idx</span>
+
+    <span class="n">no_valley_idx</span> <span class="o">=</span> <span class="n">condition</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
+    <span class="n">right_idx</span><span class="p">[</span><span class="n">no_valley_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">center_idx</span> <span class="o">+</span> <span class="mi">3</span>  <span class="c1"># no valley, set to half of 7</span>
+
+    <span class="n">right_idx</span> <span class="o">=</span> <span class="p">(</span><span class="n">right_idx</span> <span class="o">*</span> <span class="n">sa_gausion_m</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">sa_sum</span> <span class="o">+</span> <span class="mf">1e-7</span><span class="p">)</span>
+    <span class="n">right_idx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">right_idx</span><span class="p">)</span>  <span class="c1"># or floor</span>
+
+    <span class="k">return</span> <span class="n">left_idx</span><span class="o">.</span><span class="n">int</span><span class="p">()</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">(),</span> <span class="n">right_idx</span><span class="o">.</span><span class="n">int</span><span class="p">()</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="grid_xic_best">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.grid_xic_best">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">grid_xic_best</span><span class="p">(</span><span class="n">df_batch</span><span class="p">,</span> <span class="n">ms1_centroid</span><span class="p">,</span> <span class="n">ms2_centroid</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    For developing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">itertools</span><span class="w"> </span><span class="kn">import</span> <span class="n">product</span>
+
+    <span class="n">locus_start_v</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;score_elute_span_left&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">locus_end_v</span> <span class="o">=</span> <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;score_elute_span_right&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+    <span class="n">tol_ppm_v</span> <span class="o">=</span> <span class="p">[</span><span class="mf">20.0</span><span class="p">,</span> <span class="mf">16.0</span><span class="p">,</span> <span class="mf">12.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">]</span>
+    <span class="n">tol_im_v</span> <span class="o">=</span> <span class="p">[</span><span class="mf">0.03</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">]</span>
+    <span class="n">grid_params</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">product</span><span class="p">(</span><span class="n">tol_ppm_v</span><span class="p">,</span> <span class="n">tol_im_v</span><span class="p">))</span>
+
+    <span class="n">xics_v</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">expand_dim</span> <span class="o">=</span> <span class="mi">64</span>
+    <span class="k">for</span> <span class="n">search_i</span><span class="p">,</span> <span class="p">(</span><span class="n">tol_ppm</span><span class="p">,</span> <span class="n">tol_im</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">grid_params</span><span class="p">):</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">rts</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">xics</span> <span class="o">=</span> <span class="n">extract_xics</span><span class="p">(</span>
+            <span class="n">df_batch</span><span class="p">,</span>
+            <span class="n">ms1_centroid</span><span class="p">,</span>
+            <span class="n">ms2_centroid</span><span class="p">,</span>
+            <span class="n">im_tolerance</span><span class="o">=</span><span class="n">tol_im</span><span class="p">,</span>
+            <span class="n">ppm_tolerance</span><span class="o">=</span><span class="n">tol_ppm</span><span class="p">,</span>
+            <span class="n">cycle_num</span><span class="o">=</span><span class="mi">13</span><span class="p">,</span>
+            <span class="n">by_pred</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">xics</span> <span class="o">=</span> <span class="n">xics</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">()</span>
+        <span class="n">mask1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span> <span class="o">&gt;=</span> <span class="n">locus_start_v</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span>
+        <span class="n">mask2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span> <span class="o">&lt;=</span> <span class="n">locus_end_v</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span>
+        <span class="n">xics</span> <span class="o">=</span> <span class="n">xics</span> <span class="o">*</span> <span class="n">mask1</span> <span class="o">*</span> <span class="n">mask2</span>
+        <span class="n">rts</span><span class="p">,</span> <span class="n">xics</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">interp_xics</span><span class="p">(</span><span class="n">xics</span><span class="p">,</span> <span class="n">rts</span><span class="p">,</span> <span class="n">expand_dim</span><span class="p">)</span>
+        <span class="n">xics</span> <span class="o">=</span> <span class="n">gpu_simple_smooth</span><span class="p">(</span><span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">xics</span><span class="p">))</span>
+        <span class="n">xics</span> <span class="o">=</span> <span class="n">xics</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">()</span>
+
+        <span class="c1"># find best profile</span>
+        <span class="k">if</span> <span class="n">search_i</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">sas</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="n">utils</span><span class="o">.</span><span class="n">cross_cos</span><span class="p">,</span> <span class="n">xics</span><span class="p">)))</span>
+            <span class="n">sa_sum</span> <span class="o">=</span> <span class="n">sas</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">best_ion_idx</span> <span class="o">=</span> <span class="n">sa_sum</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">best_profile</span> <span class="o">=</span> <span class="n">xics</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">xics</span><span class="p">)),</span> <span class="n">best_ion_idx</span><span class="p">]</span>
+
+            <span class="c1"># bad_xic = np.abs(best_profile.argmax(axis=-1) - expand_dim / 2) &gt; 6</span>
+
+            <span class="c1"># boundary by best_profile</span>
+            <span class="n">box</span> <span class="o">=</span> <span class="n">best_profile</span> <span class="o">&gt;</span> <span class="n">best_profile</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.2</span>
+            <span class="n">left</span> <span class="o">=</span> <span class="n">box</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">right</span> <span class="o">=</span> <span class="n">expand_dim</span> <span class="o">-</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">box</span><span class="p">[:,</span> <span class="p">::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;integral_left&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">left</span>
+            <span class="n">df_batch</span><span class="p">[</span><span class="s2">&quot;integral_right&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">right</span>
+
+        <span class="n">xics_v</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">xics</span><span class="p">)</span>
+    <span class="n">xics</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">xics_v</span><span class="p">),</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+
+    <span class="c1"># find other profile with the help of best_profile</span>
+    <span class="n">ion_num</span> <span class="o">=</span> <span class="n">xics</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+    <span class="n">best_profile</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">best_profile</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">:],</span> <span class="nb">len</span><span class="p">(</span><span class="n">grid_params</span><span class="p">),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">best_profile</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">best_profile</span><span class="p">[:,</span> <span class="p">:,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">:],</span> <span class="n">ion_num</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">dot_sum</span> <span class="o">=</span> <span class="p">(</span><span class="n">best_profile</span> <span class="o">*</span> <span class="n">xics</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">norm1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">best_profile</span><span class="p">,</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="mf">1e-6</span>
+    <span class="n">norm2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">xics</span><span class="p">,</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="mf">1e-6</span>
+    <span class="n">sas</span> <span class="o">=</span> <span class="n">dot_sum</span> <span class="o">/</span> <span class="p">(</span><span class="n">norm1</span> <span class="o">*</span> <span class="n">norm2</span><span class="p">)</span>
+    <span class="n">sas</span> <span class="o">=</span> <span class="n">sas</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">sas</span></div>
+
+
+
+<div class="viewcode-block" id="update_sa_by_grid">
+<a class="viewcode-back" href="../../api_reference/full_dia.html#full_dia.fxic.update_sa_by_grid">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">update_sa_by_grid</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">ms</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    For developing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">df_good</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">swath_id</span> <span class="ow">in</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;swath_id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">():</span>
+        <span class="n">df_swath</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="p">[</span><span class="s2">&quot;swath_id&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">swath_id</span><span class="p">]</span>
+        <span class="n">df_swath</span> <span class="o">=</span> <span class="n">df_swath</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="c1"># ms</span>
+        <span class="n">ms1_centroid</span><span class="p">,</span> <span class="n">ms2_centroid</span> <span class="o">=</span> <span class="n">ms</span><span class="o">.</span><span class="n">copy_map_to_gpu</span><span class="p">(</span><span class="n">swath_id</span><span class="p">,</span> <span class="n">centroid</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="c1"># in batches</span>
+        <span class="n">batch_n</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">batch_xic_locus</span>
+        <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">df_batch</span> <span class="ow">in</span> <span class="n">df_swath</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="n">df_swath</span><span class="o">.</span><span class="n">index</span> <span class="o">//</span> <span class="n">batch_n</span><span class="p">):</span>
+            <span class="n">df_batch</span> <span class="o">=</span> <span class="n">df_batch</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+            <span class="c1"># grid search for best profiles</span>
+            <span class="n">sas</span> <span class="o">=</span> <span class="n">grid_xic_best</span><span class="p">(</span><span class="n">df_batch</span><span class="p">,</span> <span class="n">ms1_centroid</span><span class="p">,</span> <span class="n">ms2_centroid</span><span class="p">)</span>
+
+            <span class="n">cols_center</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;score_center_elution_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">14</span><span class="p">)]</span>
+            <span class="n">df_batch</span><span class="p">[</span><span class="n">cols_center</span><span class="p">]</span> <span class="o">=</span> <span class="n">sas</span>
+            <span class="n">df_good</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">df_batch</span><span class="p">)</span>
+
+        <span class="n">utils</span><span class="o">.</span><span class="n">release_gpu_scans</span><span class="p">(</span><span class="n">ms1_centroid</span><span class="p">,</span> <span class="n">ms2_centroid</span><span class="p">)</span>
+
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">df_good</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">df</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">fulldia</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../developer_guide.html">Developer guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../contributing.html">Contributing to full_dia</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, sj.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
