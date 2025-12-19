@@ -4,21 +4,11 @@ full\_dia.alphatims package
 Submodules
 ----------
 
-full\_dia.alphatims.bruker module
----------------------------------
+.. toctree::
+   :maxdepth: 4
 
-.. automodule:: full_dia.alphatims.bruker
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
-full\_dia.alphatims.utils module
---------------------------------
-
-.. automodule:: full_dia.alphatims.utils
-   :members:
-   :show-inheritance:
-   :undoc-members:
+   full_dia.alphatims.bruker
+   full_dia.alphatims.utils
 
 Module contents
 ---------------
