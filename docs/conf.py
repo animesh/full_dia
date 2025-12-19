@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.abspath(".."))
@@ -38,12 +39,18 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 html_theme = "furo"
 html_static_path = ["_static"]
 
+api_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "api_reference"))
+if not os.path.exists(api_dir):
+    os.makedirs(api_dir)
 
-def skip_alphatims(app, what, name, obj, skip, options):
-    if name.startswith("full_dia.alphatims"):
-        return True
-    return skip
-
-
-def setup(app):
-    app.connect("autodoc-skip-member", skip_alphatims)
+subprocess.run(
+    [
+        "sphinx-apidoc",
+        "-o",
+        api_dir,
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "full_dia")),
+        "--force",
+        "--separate",
+    ],
+    check=True,
+)
