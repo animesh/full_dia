@@ -11,13 +11,13 @@ full-dia documentation
    :maxdepth: 2
    :caption: Contents:
 
+   README
    introduction
    architecture
    developer_guide
    contributing
    workflows
    api_reference/index
-   ../README.md
 
 
 
