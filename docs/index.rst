@@ -17,5 +17,7 @@ full-dia documentation
    contributing
    workflows
    api_reference/index
+   ../README.md
+
 
 
