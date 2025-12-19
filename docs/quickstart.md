@@ -1,54 +1,5 @@
-# Full-DIA
+# Quickstart
 
-Full-DIA, a freely available software for single-cell diaPASEF data analysis that 
-leverages deep learning to improve proteome coverage, 
-quantitative accuracy and analysis speed. Most notably, 
-Full-DIA is the first to automatically generate a missing-value-free protein matrix 
-under global FDR control, which may offer superior biological interpretability and 
-insight into single-cell proteomics data 
-compared to conventional matrices with missing values.
-
----
-### Contents
-**[Installation](#installation)**<br>
-**[Usage](#usage)**<br>
-**[Output](#output)**<br>
-
----
-### Installation
-
-We recommend using [Conda](https://www.anaconda.com/) to create a Python environment for using Full-DIA, whether on Windows or Linux.
-
-1. Create a Python environment with version 3.9.18.
-    ```bash
-    conda create -n full_env python=3.12
-    conda activate full_env
-    ```
-
-2. Install the corresponding PyTorch and CuPy packages based on your CUDA version (which can be checked using the `nvidia-smi` command). Full-DIA requires an NVIDIA GPU with more than 10 GB of VRAM, a minimum of 64 GB RAM, and a high-performance Intel CPU.
-  - CUDA-12
-    ```bash
-    pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cu121
-    conda install cudatoolkit
-    ```
-  - CUDA-11
-    ```bash
-    pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cu118
-    conda install cudatoolkit
-    ```
-
-3. Install Full-DIA
-    ```bash
-    pip install full_dia[cuda11] or pip install full_dia[cuda12]
-    ```
-
-- Alternatively, you can create a Conda environment with Full-DIA in one command:
-    ```bash
-    conda env create -f https://raw.githubusercontent.com/JianSong2018/full_dia/main/requirements/fulldia_cuda12.yml
-    ```
-
----
-### Usage
 ```bash
 full_dia -lib "Absolute path of the spectral library" -ws "Absolute path of the .d folder or a folder containing multiple .d folders"
 ```
@@ -101,10 +52,3 @@ Most column names are consistent with DIA-NN and are self-explanatory.
 * **Precursor.Quantity.Deep** corrected quantity of the precursor.
 * **RT** the retention time of the precursor.
 * **IM** the ion mobility of the precursor.
-
----
-## Troubleshooting
-- Please create a GitHub issue and we will respond as soon as possible.
-- Email: songjian2022@suda.edu.cn
-
----

@@ -11,12 +11,10 @@ full-dia documentation
    :maxdepth: 2
    :caption: Contents:
 
-   README
-   introduction
-   architecture
-   developer_guide
+   installation
+   quickstart
+   library
    contributing
-   workflows
    api_reference/index
 
 
