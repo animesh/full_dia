@@ -1,8 +1,6 @@
-Contributing to full_dia
-=======================
+# Contributing
 
 Development workflow
---------------------
 1. Fork the repository
 2. Create a feature branch
 3. Implement and test changes
