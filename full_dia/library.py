@@ -78,7 +78,6 @@ class Library:
             "Protein.Ids",
             "Protein.Group",
             "Protein.Names",
-            "Genes",
         }
         # check name
         missing_cols = required_columns - set(df.columns)

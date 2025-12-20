@@ -1,21 +1,35 @@
 # Library
-Full-DIA will generate **`report.log.txt`** and **`report.parquet`** in output folder. 
-The report.parquet contains precursor and protein IDs, as well as plenty of associated information. 
-Most column names are consistent with DIA-NN and are self-explanatory.
 
-* **Protein.Group** - inferred proteins. Full-DIA uses [IDPicker](https://pubs.acs.org/doi/abs/10.1021/pr070230d) algorithm to infer proteins. 
-* **Protein.Ids** - all proteins matched to the precursor in the library.
-* **Protein.Names** names (UniProt names) of the proteins in the Protein.Group.
-* **PG.Quantity.Raw** raw quantity of the Protein.Group.
-* **PG.Quantity.Deep** corrected quantity of the Protein.Group.
-* **Precursor.Id** peptide seq + precursor charge.
-* **Precursor.Charge** the charge of precursor.
-* **Q.Value** run-specific precursor q-value.
-* **Global.Q.Value** global precursor q-value.
-* **PG.Q.Value** run-specific q-value for the protein group.
-* **Global.PG.Q.Value** global q-value for the protein group.
-* **Proteotypic** indicates the peptide is specific to a protein.
-* **Precursor.Quantity.Raw** raw quantity of the precursor.
-* **Precursor.Quantity.Deep** corrected quantity of the precursor.
-* **RT** the retention time of the precursor.
-* **IM** the ion mobility of the precursor.
+## By DIA-NN (> v1.9, recommended) 
+  1. Generate the predicted library with the .predicted.speclib suffix based on sequence databases in UniProt format (see [instructions](https://github.com/vdemichev/DiaNN#getting-started-with-dia-nn)).
+  2. Convert the .predicted.speclib file to .parquet format (see [instructions](https://github.com/vdemichev/DiaNN?tab=readme-ov-file#editing-spectral-libraries)).
+
+## By others
+
+In this way, the .tsv or .parquet library should contain these columns:
+
+* **Precursor.Id** - peptide seq + precursor charge.
+* **Modified.Sequence** - peptide seq with modifications, only supporting C(UniMod:4) and M(UniMod:35).
+* **Stripped.Sequence** - peptide seq.
+* **Precursor.Charge** - the charge of the precursor.
+* **Proteotypic** - whether the peptide is proteotypic (i.e., uniquely mapping to a single protein).
+* **Decoy** - 0. Full-DIA will generate the decoys itself.
+* **N.Term** - N-terminal enzymatic specificity of the peptide.
+* **C.Term** - C-terminal enzymatic specificity of the peptide.
+* **RT** - retention time or iRT or predicted RT of the peptide.
+* **IM** - ion mobility or predicted ion mobility of the precursor.
+* **Q.Value** - 0.
+* **Peptidoform.Q.Value** - 0.
+* **PTM.Site.Confidence** - 0.
+* **PG.Q.Value** - 0.
+* **Precursor.Mz** - m/z of the precursor.
+* **Product.Mz** - m/z of the fragment ion.
+* **Relative.Intensity** - relative intensity of the fragment ion.
+* **Fragment.Type** - "b" or "y".
+* **Fragment.Charge** - 1 or 2.
+* **Fragment.Series.Number** - the number of aas of the fragment ion.
+* **Fragment.Loss.Type** - "noloss"
+* **Exclude.From.Quant** - 0.
+* **Protein.Ids** - all UniProt Ids of proteins matched to the peptides in the library.
+* **Protein.Group** - None.
+* **Protein.Names** - all UniProt names of proteins matched to the peptides in the library.
