@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "full_dia"
-dynamic = ["version"]
+#dynamic = ["version"]
 description = "Generate a missingness-free protein quantification matrix from multiple diaPASEF runs through deep learning-based scoring."
 readme = "README.md"
 requires-python = ">=3.10.0"
@@ -47,7 +47,6 @@ docs = [
 #[tool.setuptools.dynamic]
 #version = {attr = "full_dia.__version__"}
 [project]
-name = "full_dia"
 version = "0.0.0-test"
 
 [tool.setuptools.packages.find]
