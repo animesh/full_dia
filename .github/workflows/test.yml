@@ -3,7 +3,7 @@ name: Run all tests
 on:
   push:
     branches:
-      - "**"       # 所有分支
+      - "**"
   pull_request:
     branches:
       - "**"
