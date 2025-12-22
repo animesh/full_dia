@@ -1,7 +1,13 @@
+import sys
+from unittest import mock
+
 import numpy as np
 import pandas as pd
 
 from full_dia import calib, cfg
+
+sys.modules["cupy"] = mock.MagicMock()
+sys.modules["torch"] = mock.MagicMock()
 
 
 def test_calib_rt():

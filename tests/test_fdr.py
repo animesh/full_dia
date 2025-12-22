@@ -1,3 +1,6 @@
+import sys
+from unittest import mock
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -5,6 +8,9 @@ from sklearn.ensemble import VotingClassifier
 from sklearn.preprocessing import StandardScaler
 
 from full_dia.fdr import cal_q_pr_batch
+
+sys.modules["cupy"] = mock.MagicMock()
+sys.modules["torch"] = mock.MagicMock()
 
 
 @pytest.fixture

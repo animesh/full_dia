@@ -1,6 +1,12 @@
+import sys
+from unittest import mock
+
 import numpy as np
 
 from full_dia import utils
+
+sys.modules["cupy"] = mock.MagicMock()
+sys.modules["torch"] = mock.MagicMock()
 
 
 def test_cal_group_rank():
