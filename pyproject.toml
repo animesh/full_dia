@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "full_dia"
 #dynamic = ["version"]
-version = "0.0.0-test"
+version = "0.0.0"
 description = "Generate a missingness-free protein quantification matrix from multiple diaPASEF runs through deep learning-based scoring."
 readme = "README.md"
 requires-python = ">=3.10.0"
