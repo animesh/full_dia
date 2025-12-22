@@ -44,8 +44,11 @@ docs = [
   "sphinx-rtd-theme"
 ]
 
-[tool.setuptools.dynamic]
-version = {attr = "full_dia.__version__"}
+#[tool.setuptools.dynamic]
+#version = {attr = "full_dia.__version__"}
+[project]
+name = "full_dia"
+version = "0.0.0-test"
 
 [tool.setuptools.packages.find]
 where = ["full_dia"]
