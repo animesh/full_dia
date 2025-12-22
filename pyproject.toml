@@ -63,8 +63,8 @@ full_dia = "full_dia.main:main"
 
 [tool.ruff.lint]
 exclude = [
-    "full_dia/alphatims",
-    "ipynb/*.ipynb"
+    "full_dia/alphatims/**",
+    "ipynb/**"
 ]
 select = [
     "E",    # pycodestyle
