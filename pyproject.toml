@@ -4,8 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "full_dia"
-#dynamic = ["version"]
-version = "0.0.0"
+dynamic = ["version"]
 description = "Generate a missingness-free protein quantification matrix from multiple diaPASEF runs through deep learning-based scoring."
 readme = "README.md"
 requires-python = ">=3.10.0"
@@ -45,9 +44,6 @@ docs = [
   "sphinx-rtd-theme"
 ]
 
-#[tool.setuptools.dynamic]
-#version = {attr = "full_dia.__version__"}
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["full_dia*"]
@@ -58,6 +54,9 @@ include = ["full_dia*"]
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "full_dia.__version__"}
 
 [project.scripts]
 full_dia = "full_dia.main:main"
