@@ -48,7 +48,15 @@ docs = [
 version = {attr = "full_dia.__version__"}
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["full_dia"]
+include = ["*"]
+
+[tool.setuptools.package-data]
+"full_dia" = ["cfg/*.yaml"]
+"full_dia.alphatims" = ["ext/*"]
+
+[tool.setuptools]
+include-package-data = true
 
 [project.scripts]
 full_dia = "full_dia.main:main"
