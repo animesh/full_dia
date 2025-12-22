@@ -49,8 +49,8 @@ docs = [
 #version = {attr = "full_dia.__version__"}
 
 [tool.setuptools.packages.find]
-where = ["full_dia"]
-include = ["*"]
+where = ["."]
+include = ["full_dia*"]
 
 [tool.setuptools.package-data]
 "full_dia" = ["cfg/*.yaml"]
