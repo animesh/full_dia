@@ -21,7 +21,7 @@ dependencies = [
   "networkx>=3.5,<3.6",
   "numba>=0.63",
   "numpy<2.0.0",
-  "pandas>=2.3",
+  "pandas>=2.3,<3.0.0",
   "pyzstd>=0.19",
   "scikit-learn>=1.8",
   "scipy>=1.16",
