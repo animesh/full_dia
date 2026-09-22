@@ -22,40 +22,108 @@ compared to conventional matrices with missing values.
 ---
 ### Installation
 
-We recommend using [Conda](https://www.anaconda.com/) to create a Python environment for using Full-DIA, whether on Windows or Linux.
+We recommend using [Conda](https://www.anaconda.com/) to create a Python environment for using Full-DIA, whether on Windows or Linux. Here are the updated installation instructions:
 
 1. Create a Python environment with version 3.9.18.
-    ```bash
-    conda create -n full_env python=3.12
-    conda activate full_env
-    ```
+```bash
+# Create and activate environment
+conda create -n full_dia_env python=3.12 -y
+conda activate full_dia_env
 
-2. Install the corresponding PyTorch and CuPy packages based on your CUDA version (which can be checked using the `nvidia-smi` command). Full-DIA requires an NVIDIA GPU with more than 10 GB of VRAM, a minimum of 64 GB RAM, and a high-performance Intel CPU.
-  - CUDA-12
-    ```bash
-    pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cu121
-    conda install cudatoolkit
-    ```
-  - CUDA-11
-    ```bash
-    pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cu118
-    conda install cudatoolkit
-    ```
+# Install PyTorch with CUDA 12.1 runtime
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
-3. Install Full-DIA
-    ```bash
-    pip install full_dia[cuda11] or pip install full_dia[cuda12]
-    ```
+# Install NumPy 1.x and CuPy 13.x (Strictly avoid NumPy 2.x to maintain ABI compatibility)
+pip install "numpy<2.0.0" "cupy-cuda12x<14.0.0" --no-cache-dir
 
-- Alternatively, you can create a Conda environment with Full-DIA in one command:
-    ```bash
-    conda env create -f https://raw.githubusercontent.com/xomicsdatascience/full_dia/main/requirements/fulldia_cuda12.yml
-    ```
+# Install full_dia package
+pip install full-dia==1.0.2
+```
+
+2. Applying Compatibility Patches full_dia and its bundled dependency alphatims require three patches to resolve issues introduced by Pandas 2.0+ (Copy-on-Write) and read-only NumPy array restrictions. Run the following Python script inside the activated full_dia_env to apply all patches automatically:
+
+```bash
+import os
+import re
+import site
+
+site_packages = site.getsitepackages()[0]
+
+# Patch 1 & 2: Patch full_dia/tims.py for Pandas 2.0+ reset_index and read-only array modification
+tims_path = os.path.join(site_packages, "full_dia", "tims.py")
+if os.path.exists(tims_path):
+    with open(tims_path, "r") as f:
+        code = f.read()
+
+    # Preserve multi-index grouping columns during reset_index in get_dia_windows
+    code = code.replace(".reset_index(drop=True)", ".reset_index()")
+
+    # Make array writable before slice assignment in get_dia_quadrupole
+    target = "low[1:] = (low[1:] + high[:-1]) / 2"
+    replacement = "low = low.copy()\n        low[1:] = (low[1:] + high[:-1]) / 2"
+    if target in code:
+        code = code.replace(target, replacement)
+
+    with open(tims_path, "w") as f:
+        f.write(code)
+    print("Successfully patched full_dia/tims.py")
+
+# Patch 3: Patch alphatims/bruker.py for Pandas 2.0+ ChainedAssignmentError on Frame 0
+bruker_path = os.path.join(site_packages, "full_dia", "alphatims", "bruker.py")
+if os.path.exists(bruker_path):
+    with open(bruker_path, "r") as f:
+        code = f.read()
+
+    pattern = r'frames\.([A-Za-z0-9_]+)\[0\]\s*=\s*0'
+    replacement = r"frames.loc[0, '\1'] = 0"
+    new_code, count = re.subn(pattern, replacement, code)
+
+    if count > 0:
+        with open(bruker_path, "w") as f:
+            f.write(new_code)
+        print(f"Successfully patched {count} chained assignment calls in alphatims/bruker.py")
+```
+
+All three source code patches applied during this session are included in the README script:
+
+full_dia/tims.py – Changed .reset_index(drop=True) to .reset_index() to prevent Pandas 2.0+ from dropping the quadrupole m/z index columns during groupby().apply().
+
+full_dia/tims.py – Added low = low.copy() in get_dia_quadrupole() to resolve the NumPy read-only array assignment error.
+
+full_dia/alphatims/bruker.py – Converted chained assignments (frames.col[0] = 0) to .loc[0, col] = 0 to fix frame 0 metadata zeroing under Pandas 2.0+ Copy-on-Write.
+
+The other errors encountered were resolved through dependency pinning and workspace file management rather than source code edits:
+
+NumPy 2.x np.searchsorted error (ValueError: search side must be one of 'left' or 'right'): Resolved by pinning numpy<2.0.0 in the environment rather than patching alphatims.
+
+CuPy C-extension import error: Resolved by reinstalling cupy-cuda12x<14.0.0 compiled against the NumPy 1.x ABI.
+
+Missing quad_low_mz_values on blank runs: Resolved by removing non-diaPASEF/blank .d folders from the -ws directory.
 
 ---
 ### Usage
+
+Convert library 
+
+```
+diann.exe --lib  --threads 8 --verbose 3 --out  --qvalue 0.01 --matrices --out-lib L:\promec\FastaDB\humanMoxCa\lib.parquet --gen-spec-lib --predictor --fasta camprotR_240512_cRAP_20190401_full_tags.fasta --cont-quant-exclude cRAP- --fasta L:\promec\FastaDB\UP000005640_9606.fasta --fasta-search --min-pep-len 7 --max-pep-len 30 --min-pr-mz 300 --max-pr-mz 1800 --min-pr-charge 1 --max-pr-charge 4 --min-fr-mz 200 --max-fr-mz 1800 --cut K*,R* --missed-cleavages 1 --unimod4 --var-mods 1 --var-mod UniMod:35,15.994915,M --no-prot-inf --rt-profiling --original-mods
+diann.exe --lib L:\promec\FastaDB\humanMoxCa\lib.predicted.speclib --threads 24 --verbose 1 --out  --qvalue 0.05 --matrices --out-lib L:\promec\FastaDB\humanMoxCa\humanMoxCa.parquet --gen-spec-lib --fasta camprotR_240512_cRAP_20190401_full_tags.fasta --cont-quant-exclude cRAP- --min-pep-len 7 --max-pep-len 30 --min-pr-mz 300 --max-pr-mz 1800 --min-pr-charge 1 --max-pr-charge 4 --min-fr-mz 200 --max-fr-mz 1800 --cut K*,R* --missed-cleavages 1 --unimod4 --var-mods 1 --var-mod UniMod:35,15.994915,M --peptidoforms --reanalyse --rt-profiling 
+#diann.exe --lib  --threads 16 --verbose 1 --out F:\promec\FastaDB\humanMoxCa.parquet --qvalue 0.01 --matrices --out-lib F:\promec\FastaDB\humanMoxCa.tmp.parquet --gen-spec-lib --predictor --reannotate --fasta camprotR_240512_cRAP_20190401_full_tags.fasta --cont-quant-exclude cRAP- --fasta F:\promec\FastaDB\UP000005640_9606.fasta --fasta-search --min-fr-mz 200 --max-fr-mz 1800 --min-pep-len 7 --max-pep-len 30 --min-pr-mz 300 --max-pr-mz 1800 --min-pr-charge 1 --max-pr-charge 4 --cut K*,R* --missed-cleavages 1 --unimod4 --var-mods 1 --var-mod UniMod:35,15.994915,M --reanalyse --rt-profiling
+#diann.exe --lib "F:\promec\FastaDB\humanMoxCa.tmp.predicted.speclib" --threads 32 --verbose 1 --out "F:\promec\FastaDB\humanMoxCa.main.parquet" --qvalue 0.01 --matrices  --out-lib "F:\promec\FastaDB\humanMoxCa.parquet" --gen-spec-lib --reannotate --fasta camprotR_240512_cRAP_20190401_full_tags.fasta --cont-quant-exclude cRAP- --unimod4 --var-mods 1 --var-mod UniMod:35,15.994915,M --reanalyse --rt-profiling 
+#diann.exe --lib "F:\promec\FastaDB\humanMC2V3defaults.predicted.speclib" --threads 32 --verbose 1 --out "F:\promec\FastaDB\report.parquet" --qvalue 0.01 --matrices  --out-lib "F:\promec\FastaDB\humanMC2defaults.parquet.tmp.parquet" --gen-spec-lib --unimod4 --reanalyse --rt-profiling 
+copy F:\promec\FastaDB\humanMoxCa.parquet F:/lib/humanMoxCa.parquet
+```
+
+Download [test data](https://fuzzylife.substack.com/p/proteomics-data-processing-with-maxquant) 
+```
+cd /mnt/f/timsTOF
+wget https://bioshare.bioinformatics.ucdavis.edu/bioshare/download/cts8a50sb36put8/26june24_hel50_100spd_OT_1ulirt_S2-D2_1_6366.d.zip
+wget https://bioshare.bioinformatics.ucdavis.edu/bioshare/download/cts8a50sb36put8/26june24_hel50_100spd_OT_1ulirt_S2-C2_1_6365.d.zip
+unzip *.zip
+```
+
 ```bash
-full_dia -lib "Absolute path of the spectral library" -ws "Absolute path of the .d folder or a folder containing multiple .d folders"
+full_dia -lib /mnt/f/lib/humanMoxCa.parquet -ws /mnt/f/timsTOF
 ```
 (Please note that the path needs to be enclosed in quotes if running on a Windows platform.)
 
